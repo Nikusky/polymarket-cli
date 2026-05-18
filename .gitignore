@@ -19,3 +19,17 @@ rs-clob-client/
 .env
 
 CLAUDE.md
+
+# polyBOT-specific: runtime data must never be committed
+/data/
+scripts/strategy/data/
+scripts/research/data/
+tmp_bone/
+*.log
+*.jsonl
+
+# stray stdout redirects from misquoted Windows paths
+C:Users*
+
+# node
+node_modules/

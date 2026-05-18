@@ -208,6 +208,7 @@ fn sudo_mv(from: &str, to: &str) -> std::io::Result<()> {
 mod tests {
     use super::*;
 
+    #[cfg(not(windows))]
     #[test]
     fn detect_target_returns_valid_triple() {
         let target = detect_target().unwrap();

@@ -1,4 +1,5 @@
 mod auth;
+mod bot;
 mod commands;
 mod config;
 mod output;
@@ -64,10 +65,13 @@ enum Commands {
     Status,
     /// Update to the latest version
     Upgrade,
+    /// Run the Bonereaper copy bot (paper or live)
+    Bot(bot::BotArgs),
 }
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    let _ = dotenvy::dotenv();
     let cli = Cli::parse();
     let output = cli.output;
 
@@ -117,6 +121,7 @@ pub(crate) async fn run(cli: Cli) -> anyhow::Result<()> {
             commands::wallet::execute(args, cli.output, cli.private_key.as_deref())
         }
         Commands::Upgrade => commands::upgrade::execute(),
+        Commands::Bot(args) => bot::execute(args, cli.output).await,
         Commands::Status => {
             let status = gamma.status().await?;
             match cli.output {

@@ -1,0 +1,24 @@
+[Unit]
+Description=polyBOT orderbook snapshot daemon (15m BTC, observe-11)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=polybot
+Group=polybot
+WorkingDirectory=/opt/polybot/polymarket-cli
+ExecStart=/usr/bin/node /opt/polybot/polymarket-cli/scripts/research/snapshot_orderbooks.js 11 168
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=polybot-snapshot
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/opt/polybot/polymarket-cli/scripts/research/data
+
+[Install]
+WantedBy=multi-user.target
