@@ -1,8 +1,10 @@
 // Phase 2 strategy bot — paper mode.
 //
 // Strategy: at minute observe_min of each 15m BTC up/down market, check
-// BTC's return from market open via Binance. If |return| > threshold, BUY
-// the matching side at the prevailing ask. Hold to settlement.
+// BTC's return from market open via the median of Coinbase + Kraken (a
+// stand-in for the Chainlink BTC/USD stream that resolves these markets).
+// If |return| > threshold, BUY the matching side at the prevailing ask.
+// Hold to settlement.
 //
 // Paper mode only — no real orders. Writes append-only JSONL ledger.
 //
@@ -13,6 +15,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { btcPrice } = require('./btc_price');
 
 const CLI = (() => {
   const base = path.join(__dirname, '..', '..', 'target');
@@ -49,28 +52,6 @@ function saveState(s) { fs.writeFileSync(STATE, JSON.stringify(s)); }
 function runCli(args, timeoutMs = 8000) {
   const r = spawnSync(CLI, args, { encoding: 'utf8', timeout: timeoutMs, maxBuffer: 5 * 1024 * 1024 });
   return { code: r.status, stdout: r.stdout, stderr: r.stderr };
-}
-
-async function binancePrice(unixSec = null) {
-  if (unixSec === null) {
-    try {
-      const r = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT', { signal: AbortSignal.timeout(5000) });
-      const j = await r.json();
-      return parseFloat(j.price);
-    } catch { return null; }
-  }
-  try {
-    const startMs = (unixSec - 60) * 1000;
-    const endMs = (unixSec + 60) * 1000;
-    const r = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=${startMs}&endTime=${endMs}&limit=3`, { signal: AbortSignal.timeout(5000) });
-    const arr = await r.json();
-    if (!arr || arr.length === 0) return null;
-    for (const k of arr) {
-      const openMs = k[0], closeMs = k[6];
-      if (openMs <= unixSec * 1000 && unixSec * 1000 < closeMs) return parseFloat(k[1]);
-    }
-    return parseFloat(arr[0][1]);
-  } catch { return null; }
 }
 
 function fetchMarketBySlug(slug) {
@@ -117,8 +98,8 @@ async function makeDecision(openTs, state) {
   if (!market) { log('warn', `${slug} not listed`); return; }
   if (market.closed) { state.decisions[slug] = { reason: 'closed' }; saveState(state); return; }
 
-  const btcOpen = await binancePrice(openTs);
-  const btcNow = await binancePrice();
+  const btcOpen = await btcPrice(openTs);
+  const btcNow = await btcPrice();
   if (!btcOpen || !btcNow) { log('warn', 'btc price unavailable'); return; }
   const retBps = Math.log(btcNow / btcOpen) * 10000;
 
