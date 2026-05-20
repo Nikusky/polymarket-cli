@@ -14,8 +14,19 @@ set -euo pipefail
 
 REPO_ROOT="/opt/polybot/polymarket-cli"
 SERVICE_USER="polybot"
-SERVICES=("polybot-strategy-a" "polybot-strategy-b" "polybot-strategy-d" "polybot-snapshot")
 CLI_DIR="${REPO_ROOT}"
+
+# SERVICES discovered from deploy/polybot-strategy-<label>.service in the repo
+# (single source of truth). Add/remove a service file → next redeploy picks it up.
+discover_services() {
+    local svcs=()
+    while IFS= read -r f; do
+        [[ -n "$f" ]] && svcs+=("$(basename "$f" .service)")
+    done < <(ls "${REPO_ROOT}/deploy"/polybot-strategy-[a-z].service 2>/dev/null | sort)
+    svcs+=("polybot-snapshot")
+    printf '%s\n' "${svcs[@]}"
+}
+mapfile -t SERVICES < <(discover_services)
 
 SKIP_PULL=0; SKIP_BUILD=0; FORCE_BUILD=0; NO_STATUS=0
 for arg in "$@"; do

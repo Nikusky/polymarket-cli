@@ -1,7 +1,11 @@
-// Reads the ledgers of all 3 strategy variants and prints a side-by-side
-// comparison. Useful while running A/B/D tests in parallel.
+// Reads the ledgers of every active strategy variant and prints a
+// side-by-side comparison.
 //
-// Default variants: a, b, d — each expected at scripts/strategy/data-<label>/.
+// Variant discovery: derived from `deploy/polybot-strategy-<label>.service`
+// files in the repo. Adding a service file → variant appears in the next
+// run. Deleting it → variant drops off. Single source of truth is the
+// deploy/ folder.
+//
 // Override with STRATEGY_COMPARE_DIRS="label1:path1,label2:path2,..."
 //
 // Usage: node scripts/strategy/compare.js
@@ -19,7 +23,23 @@ function parseDirs() {
       return { label: label.trim(), dir: path.resolve(p.trim()) };
     });
   }
-  return ['a', 'b', 'd'].map(label => ({
+  const deployDir = path.join(BASE, '..', '..', 'deploy');
+  let labels = [];
+  try {
+    labels = fs.readdirSync(deployDir)
+      .map(f => f.match(/^polybot-strategy-([a-z]+)\.service$/))
+      .filter(Boolean)
+      .map(m => m[1])
+      .sort();
+  } catch {
+    // deploy dir not found — fall back to data-* directories
+    labels = fs.readdirSync(BASE)
+      .map(f => f.match(/^data-([a-z]+)$/))
+      .filter(Boolean)
+      .map(m => m[1])
+      .sort();
+  }
+  return labels.map(label => ({
     label,
     dir: path.join(BASE, `data-${label}`),
   }));
