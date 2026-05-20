@@ -1,0 +1,25 @@
+[Unit]
+Description=polyBOT strategy paper bot — variant C (observe-13, higher threshold-10bps, $100/trade)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=polybot
+Group=polybot
+WorkingDirectory=/opt/polybot/polymarket-cli
+Environment=STRATEGY_DATA_DIR=/opt/polybot/polymarket-cli/scripts/strategy/data-c
+ExecStart=/usr/bin/node /opt/polybot/polymarket-cli/scripts/strategy/main.js 13 10 100 168
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=polybot-strategy-c
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/opt/polybot/polymarket-cli/scripts/strategy/data-c
+
+[Install]
+WantedBy=multi-user.target

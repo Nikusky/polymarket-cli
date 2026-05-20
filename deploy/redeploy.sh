@@ -14,7 +14,7 @@ set -euo pipefail
 
 REPO_ROOT="/opt/polybot/polymarket-cli"
 SERVICE_USER="polybot"
-SERVICES=("polybot-strategy" "polybot-snapshot")
+SERVICES=("polybot-strategy-a" "polybot-strategy-b" "polybot-strategy-c" "polybot-snapshot")
 CLI_DIR="${REPO_ROOT}"
 
 SKIP_PULL=0; SKIP_BUILD=0; FORCE_BUILD=0; NO_STATUS=0

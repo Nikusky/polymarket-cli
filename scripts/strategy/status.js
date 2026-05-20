@@ -6,8 +6,11 @@
 const fs = require('fs');
 const path = require('path');
 
-const LEDGER = path.join(__dirname, 'data', 'strategy-ledger.jsonl');
-const STATE = path.join(__dirname, 'data', 'strategy-state.json');
+const DATA_DIR = process.env.STRATEGY_DATA_DIR
+  ? path.resolve(process.env.STRATEGY_DATA_DIR)
+  : path.join(__dirname, 'data');
+const LEDGER = path.join(DATA_DIR, 'strategy-ledger.jsonl');
+const STATE = path.join(DATA_DIR, 'strategy-state.json');
 
 if (!fs.existsSync(LEDGER)) { console.log('No ledger yet:', LEDGER); process.exit(0); }
 

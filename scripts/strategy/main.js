@@ -28,7 +28,9 @@ const CLI = (() => {
   for (const p of candidates) if (fs.existsSync(p)) return p;
   throw new Error(`polymarket binary not found; checked: ${candidates.join(', ')}`);
 })();
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = process.env.STRATEGY_DATA_DIR
+  ? path.resolve(process.env.STRATEGY_DATA_DIR)
+  : path.join(__dirname, 'data');
 const LEDGER = path.join(DATA_DIR, 'strategy-ledger.jsonl');
 const STATE = path.join(DATA_DIR, 'strategy-state.json');
 
