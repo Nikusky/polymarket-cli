@@ -1,7 +1,7 @@
 // Reads the ledgers of all 3 strategy variants and prints a side-by-side
-// comparison. Useful while running A/B/C tests in parallel.
+// comparison. Useful while running A/B/D tests in parallel.
 //
-// Default variants: a, b, c — each expected at scripts/strategy/data-<label>/.
+// Default variants: a, b, d — each expected at scripts/strategy/data-<label>/.
 // Override with STRATEGY_COMPARE_DIRS="label1:path1,label2:path2,..."
 //
 // Usage: node scripts/strategy/compare.js
@@ -19,7 +19,7 @@ function parseDirs() {
       return { label: label.trim(), dir: path.resolve(p.trim()) };
     });
   }
-  return ['a', 'b', 'c'].map(label => ({
+  return ['a', 'b', 'd'].map(label => ({
     label,
     dir: path.join(BASE, `data-${label}`),
   }));
