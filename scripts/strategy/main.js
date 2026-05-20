@@ -38,6 +38,7 @@ const OBSERVE_MIN = parseInt(process.argv[2] || '13');
 const THRESH_BPS = parseFloat(process.argv[3] || '5');
 const POSITION_USD = parseFloat(process.argv[4] || '100');
 const MAX_HOURS = parseFloat(process.argv[5] || '168');
+const MAX_FILL_PRICE = parseFloat(process.env.MAX_FILL_PRICE || '0.95');
 const STOP_AT = Date.now() + MAX_HOURS * 3600 * 1000;
 const POLL_MS = 2000;
 
@@ -122,7 +123,7 @@ async function makeDecision(openTs, state) {
   if (!book) { log('warn', 'book unavailable'); return; }
   const fill = simulateFill(book, POSITION_USD);
   if (!fill) { state.decisions[slug] = { reason: 'no_liquidity' }; saveState(state); return; }
-  if (fill.avgPrice > 0.95) { log('skip', `avg fill ${fill.avgPrice.toFixed(3)} too high`); state.decisions[slug] = { reason: 'fill_too_high', avgPrice: fill.avgPrice }; saveState(state); return; }
+  if (fill.avgPrice > MAX_FILL_PRICE) { log('skip', `avg fill ${fill.avgPrice.toFixed(3)} > ${MAX_FILL_PRICE} too high`); state.decisions[slug] = { reason: 'fill_too_high', avgPrice: fill.avgPrice }; append({ kind: 'skip', ts: Math.floor(Date.now()/1000), slug, reason: 'fill_too_high', avgPrice: fill.avgPrice }); saveState(state); return; }
 
   const pos = {
     slug, openTs, resolveTs: openTs + 900,
@@ -186,7 +187,7 @@ async function tick(state) {
 }
 
 async function main() {
-  log('info', `strategy bot starting | observe=${OBSERVE_MIN} thresh=${THRESH_BPS}bps size=$${POSITION_USD} runtime=${MAX_HOURS}h`);
+  log('info', `strategy bot starting | observe=${OBSERVE_MIN} thresh=${THRESH_BPS}bps size=$${POSITION_USD} maxFill=${MAX_FILL_PRICE} runtime=${MAX_HOURS}h`);
   log('info', `ledger=${LEDGER}`);
   const state = loadState();
   while (Date.now() < STOP_AT) {
