@@ -1,0 +1,26 @@
+[Unit]
+Description=polyBOT strategy paper bot — variant F "Early observe" (observe-9, threshold-4bps, max-fill-0.85, $100). Microstructure model: market efficiency erodes edge as signal becomes obvious; entering at minute 9 with weaker drift catches fills closer to signal-implied probability before other traders price the move in.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=polybot
+Group=polybot
+WorkingDirectory=/opt/polybot/polymarket-cli
+Environment=STRATEGY_DATA_DIR=/opt/polybot/polymarket-cli/scripts/strategy/data-f
+Environment=MAX_FILL_PRICE=0.85
+ExecStart=/usr/bin/node /opt/polybot/polymarket-cli/scripts/strategy/main.js 9 4 100 168
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=polybot-strategy-f
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/opt/polybot/polymarket-cli/scripts/strategy/data-f
+
+[Install]
+WantedBy=multi-user.target

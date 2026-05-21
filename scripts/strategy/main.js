@@ -39,6 +39,7 @@ const THRESH_BPS = parseFloat(process.argv[3] || '5');
 const POSITION_USD = parseFloat(process.argv[4] || '100');
 const MAX_HOURS = parseFloat(process.argv[5] || '168');
 const MAX_FILL_PRICE = parseFloat(process.env.MAX_FILL_PRICE || '0.95');
+const MAX_OBS_BPS = parseFloat(process.env.MAX_OBS_BPS || 'Infinity');
 const STOP_AT = Date.now() + MAX_HOURS * 3600 * 1000;
 const POLL_MS = 2000;
 
@@ -110,6 +111,14 @@ async function makeDecision(openTs, state) {
     log('skip', `${slug.slice(-10)}  retBps=${retBps.toFixed(2)} <${THRESH_BPS}`);
     state.decisions[slug] = { reason: 'below_threshold', retBps };
     append({ kind: 'skip', ts: Math.floor(Date.now()/1000), slug, retBps, reason: 'below_threshold' });
+    saveState(state);
+    return;
+  }
+
+  if (Math.abs(retBps) > MAX_OBS_BPS) {
+    log('skip', `${slug.slice(-10)}  retBps=${retBps.toFixed(2)} >${MAX_OBS_BPS} (exhaustion zone)`);
+    state.decisions[slug] = { reason: 'obs_too_high', retBps };
+    append({ kind: 'skip', ts: Math.floor(Date.now()/1000), slug, retBps, reason: 'obs_too_high' });
     saveState(state);
     return;
   }
@@ -187,7 +196,7 @@ async function tick(state) {
 }
 
 async function main() {
-  log('info', `strategy bot starting | observe=${OBSERVE_MIN} thresh=${THRESH_BPS}bps size=$${POSITION_USD} maxFill=${MAX_FILL_PRICE} runtime=${MAX_HOURS}h`);
+  log('info', `strategy bot starting | observe=${OBSERVE_MIN} thresh=${THRESH_BPS}bps maxObs=${MAX_OBS_BPS}bps size=$${POSITION_USD} maxFill=${MAX_FILL_PRICE} runtime=${MAX_HOURS}h`);
   log('info', `ledger=${LEDGER}`);
   const state = loadState();
   while (Date.now() < STOP_AT) {

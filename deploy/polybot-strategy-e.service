@@ -1,0 +1,27 @@
+[Unit]
+Description=polyBOT strategy paper bot — variant E "Goldilocks signal" (observe-11, threshold-5bps, |obs|<=7bps cap, max-fill-0.92, $100). Microstructure model: mid-magnitude drifts (5-7bps) reflect real continuation, larger drifts (>7.5bps) are typically news/noise that has already exhausted and reverts.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=polybot
+Group=polybot
+WorkingDirectory=/opt/polybot/polymarket-cli
+Environment=STRATEGY_DATA_DIR=/opt/polybot/polymarket-cli/scripts/strategy/data-e
+Environment=MAX_FILL_PRICE=0.92
+Environment=MAX_OBS_BPS=7
+ExecStart=/usr/bin/node /opt/polybot/polymarket-cli/scripts/strategy/main.js 11 5 100 168
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=polybot-strategy-e
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/opt/polybot/polymarket-cli/scripts/strategy/data-e
+
+[Install]
+WantedBy=multi-user.target
