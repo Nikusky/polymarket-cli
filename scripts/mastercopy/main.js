@@ -78,7 +78,7 @@ async function fetchMasterTrades(addr, limit = 50) {
 
 async function gammaWinner(slug) {
   try {
-    const url = `https://gamma-api.polymarket.com/markets?slug=${slug}`;
+    const url = `https://gamma-api.polymarket.com/markets?slug=${slug}&closed=true`;
     const data = await getJson(url);
     if (!data || data.length === 0) return null;
     const m = data[0];
