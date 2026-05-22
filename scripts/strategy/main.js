@@ -15,7 +15,8 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { btcPrice } = require('./btc_price');
+const PRICE_MODULE = process.env.STRATEGY_PRICE_MODULE || './btc_price';
+const { price: getPrice } = require(PRICE_MODULE);
 
 const CLI = (() => {
   const base = path.join(__dirname, '..', '..', 'target');
@@ -40,6 +41,20 @@ const POSITION_USD = parseFloat(process.argv[4] || '100');
 const MAX_HOURS = parseFloat(process.argv[5] || '168');
 const MAX_FILL_PRICE = parseFloat(process.env.MAX_FILL_PRICE || '0.95');
 const MAX_OBS_BPS = parseFloat(process.env.MAX_OBS_BPS || 'Infinity');
+const SLOT_SECS = parseInt(process.env.STRATEGY_SLOT_SECS || '900', 10);
+const SLUG_PREFIX = process.env.STRATEGY_SLUG_PREFIX || 'btc-updown-15m-';
+const BLACKOUT_HOURS = new Set(
+  (process.env.STRATEGY_BLACKOUT_HOURS || '')
+    .split(',')
+    .map((s) => parseInt(s.trim(), 10))
+    .filter((n) => Number.isInteger(n) && n >= 0 && n < 24)
+);
+const RAW_SIDES = (process.env.STRATEGY_SIDES || 'both').toLowerCase();
+const ALLOWED_SIDES = RAW_SIDES === 'up'
+  ? new Set(['Up'])
+  : RAW_SIDES === 'down'
+    ? new Set(['Down'])
+    : new Set(['Up', 'Down']);
 const STOP_AT = Date.now() + MAX_HOURS * 3600 * 1000;
 const POLL_MS = 2000;
 
@@ -95,17 +110,28 @@ function simulateFill(book, usdSize) {
 }
 
 async function makeDecision(openTs, state) {
-  const slug = `btc-updown-15m-${openTs}`;
+  const slug = `${SLUG_PREFIX}${openTs}`;
   if (state.decisions[slug]) return;
+
+  if (BLACKOUT_HOURS.size) {
+    const resolveHour = new Date((openTs + SLOT_SECS) * 1000).getUTCHours();
+    if (BLACKOUT_HOURS.has(resolveHour)) {
+      log('skip', `${slug.slice(-10)}  blackout hour ${resolveHour} UTC`);
+      state.decisions[slug] = { reason: 'blackout_hour', hour: resolveHour };
+      append({ kind: 'skip', ts: Math.floor(Date.now()/1000), slug, reason: 'blackout_hour', hour: resolveHour });
+      saveState(state);
+      return;
+    }
+  }
 
   const market = fetchMarketBySlug(slug);
   if (!market) { log('warn', `${slug} not listed`); return; }
   if (market.closed) { state.decisions[slug] = { reason: 'closed' }; saveState(state); return; }
 
-  const btcOpen = await btcPrice(openTs);
-  const btcNow = await btcPrice();
-  if (!btcOpen || !btcNow) { log('warn', 'btc price unavailable'); return; }
-  const retBps = Math.log(btcNow / btcOpen) * 10000;
+  const pxOpen = await getPrice(openTs);
+  const pxNow = await getPrice();
+  if (!pxOpen || !pxNow) { log('warn', 'price unavailable'); return; }
+  const retBps = Math.log(pxNow / pxOpen) * 10000;
 
   if (Math.abs(retBps) < THRESH_BPS) {
     log('skip', `${slug.slice(-10)}  retBps=${retBps.toFixed(2)} <${THRESH_BPS}`);
@@ -124,6 +150,15 @@ async function makeDecision(openTs, state) {
   }
 
   const betSide = retBps > 0 ? 'Up' : 'Down';
+
+  if (!ALLOWED_SIDES.has(betSide)) {
+    log('skip', `${slug.slice(-10)}  wrong side ${betSide}  retBps=${retBps.toFixed(2)}`);
+    state.decisions[slug] = { reason: 'wrong_side', betSide, retBps };
+    append({ kind: 'skip', ts: Math.floor(Date.now()/1000), slug, retBps, reason: 'wrong_side', betSide });
+    saveState(state);
+    return;
+  }
+
   const sideIdx = market._outcomes.indexOf(betSide);
   if (sideIdx < 0) { log('warn', `no ${betSide} token`); return; }
   const tokenId = market._tokens[sideIdx];
@@ -135,10 +170,10 @@ async function makeDecision(openTs, state) {
   if (fill.avgPrice > MAX_FILL_PRICE) { log('skip', `avg fill ${fill.avgPrice.toFixed(3)} > ${MAX_FILL_PRICE} too high`); state.decisions[slug] = { reason: 'fill_too_high', avgPrice: fill.avgPrice }; append({ kind: 'skip', ts: Math.floor(Date.now()/1000), slug, reason: 'fill_too_high', avgPrice: fill.avgPrice }); saveState(state); return; }
 
   const pos = {
-    slug, openTs, resolveTs: openTs + 900,
+    slug, openTs, resolveTs: openTs + SLOT_SECS,
     decideTs: Math.floor(Date.now() / 1000), observeBps: retBps,
     betSide, tokenId, conditionId: market.conditionId,
-    btcAtOpen: btcOpen, btcAtDecision: btcNow,
+    btcAtOpen: pxOpen, btcAtDecision: pxNow,
     paperShares: fill.shares, paperCost: fill.cost, avgFillPrice: fill.avgPrice,
     unfilledUsd: fill.unfilled,
     settled: false,
@@ -178,10 +213,10 @@ async function settleOpenPositions(state) {
 
 async function tick(state) {
   const now = Math.floor(Date.now() / 1000);
-  const cur15m = now - (now % 900);
-  const minuteInWin = (now - cur15m) / 60;
+  const curSlot = now - (now % SLOT_SECS);
+  const minuteInWin = (now - curSlot) / 60;
   if (minuteInWin >= OBSERVE_MIN && minuteInWin < OBSERVE_MIN + 1) {
-    await makeDecision(cur15m, state);
+    await makeDecision(curSlot, state);
   }
   await settleOpenPositions(state);
   // GC
@@ -189,14 +224,15 @@ async function tick(state) {
     if (state.positions[slug].settled && state.positions[slug].settleTs + 3600 < now) delete state.positions[slug];
   }
   for (const slug of Object.keys(state.decisions)) {
-    const ep = parseInt(slug.replace('btc-updown-15m-', ''));
-    if (ep && ep + 7200 < now) delete state.decisions[slug];
+    const ep = parseInt(slug.replace(SLUG_PREFIX, ''), 10);
+    if (ep && ep + Math.max(7200, SLOT_SECS * 8) < now) delete state.decisions[slug];
   }
   saveState(state);
 }
 
 async function main() {
-  log('info', `strategy bot starting | observe=${OBSERVE_MIN} thresh=${THRESH_BPS}bps maxObs=${MAX_OBS_BPS}bps size=$${POSITION_USD} maxFill=${MAX_FILL_PRICE} runtime=${MAX_HOURS}h`);
+  const blackoutStr = BLACKOUT_HOURS.size ? [...BLACKOUT_HOURS].sort((a, b) => a - b).join(',') : 'none';
+  log('info', `strategy bot starting | market=${SLUG_PREFIX}* slot=${SLOT_SECS}s price=${PRICE_MODULE} observe=${OBSERVE_MIN} thresh=${THRESH_BPS}bps maxObs=${MAX_OBS_BPS}bps size=$${POSITION_USD} maxFill=${MAX_FILL_PRICE} sides=${RAW_SIDES} blackout=${blackoutStr} runtime=${MAX_HOURS}h`);
   log('info', `ledger=${LEDGER}`);
   const state = loadState();
   while (Date.now() < STOP_AT) {
