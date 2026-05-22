@@ -24,6 +24,10 @@ discover_services() {
         [[ -n "$f" ]] && svcs+=("$(basename "$f" .service)")
     done < <(ls "${REPO_ROOT}/deploy"/polybot-strategy-[a-z].service 2>/dev/null | sort)
     svcs+=("polybot-snapshot")
+    # Non-strategy daemons in deploy/, picked up by name
+    for extra in polybot-mastercopy; do
+        [[ -f "${REPO_ROOT}/deploy/${extra}.service" ]] && svcs+=("$extra")
+    done
     printf '%s\n' "${svcs[@]}"
 }
 mapfile -t SERVICES < <(discover_services)

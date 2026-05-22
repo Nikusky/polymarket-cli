@@ -1,0 +1,30 @@
+[Unit]
+Description=polyBOT mastercopy daemon — paper "what-if" mirror of cE25/b55fa/ohanism btc-updown-15m BUYs at $1 size.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=polybot
+Group=polybot
+WorkingDirectory=/opt/polybot/polymarket-cli
+Environment=STRATEGY_DATA_DIR=/opt/polybot/polymarket-cli/scripts/mastercopy/data-mc
+Environment=MIRROR_SIZE_USD=1
+Environment=SLUG_PREFIXES=btc-updown-15m-
+Environment=POLL_INTERVAL_SEC=30
+Environment=MAX_LAG_SEC=7200
+Environment=MASTER_ADDRESSES=0xce25e214d5cfe4f459cf67f08df581885aae7fdc,0xb55fa1296e6ec55d0ce53d93b9237389f11764d4,0x89b5cdaaa4866c1e738406712012a630b4078beb
+ExecStart=/usr/bin/node /opt/polybot/polymarket-cli/scripts/mastercopy/main.js 168
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=polybot-mastercopy
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/opt/polybot/polymarket-cli/scripts/mastercopy/data-mc
+
+[Install]
+WantedBy=multi-user.target
