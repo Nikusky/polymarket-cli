@@ -1,16 +1,19 @@
 const assert = require('assert');
 const path = require('path');
-const { parseServiceFile, listVariants, readLedger } = require('./readers');
+const { parseServiceFile, listVariants, readLedger, readState, readJournal, parseJournalOutput } = require('./readers');
 
 let failed = 0;
-function test(name, fn) {
-  try { fn(); console.log(`  ok ${name}`); }
+async function test(name, fn) {
+  try { await fn(); console.log(`  ok ${name}`); }
   catch (e) { console.log(`  FAIL ${name}\n    ${e.message}`); failed++; }
 }
 
+const FIX = path.join(__dirname, '__fixtures__');
+
+(async () => {
 console.log('== parseServiceFile ==');
 
-test('parses Environment vars into env object', () => {
+await test('parses Environment vars into env object', () => {
   const src = [
     '[Unit]',
     'Description=test bot',
@@ -28,13 +31,13 @@ test('parses Environment vars into env object', () => {
   assert.deepStrictEqual(r.args, { observeMin: 9, threshBps: 6, positionUsd: 100, runtimeHours: 168 });
 });
 
-test('returns {error} when ExecStart missing', () => {
+await test('returns {error} when ExecStart missing', () => {
   const r = parseServiceFile('[Unit]\nDescription=x\n[Service]\n');
   assert.ok(r.error, 'expected error field');
   assert.match(r.error, /ExecStart/);
 });
 
-test('returns {error} when ExecStart has fewer than 6 tokens', () => {
+await test('returns {error} when ExecStart has fewer than 6 tokens', () => {
   const src = '[Service]\nExecStart=/usr/bin/node /main.js\n';
   const r = parseServiceFile(src);
   assert.strictEqual(r.args, null);
@@ -42,7 +45,7 @@ test('returns {error} when ExecStart has fewer than 6 tokens', () => {
   assert.match(r.error, /fewer than 6/);
 });
 
-test('returns {error} when ExecStart args are non-numeric', () => {
+await test('returns {error} when ExecStart args are non-numeric', () => {
   const src = '[Service]\nExecStart=/usr/bin/node /main.js a b c d\n';
   const r = parseServiceFile(src);
   assert.strictEqual(r.args, null);
@@ -52,15 +55,13 @@ test('returns {error} when ExecStart args are non-numeric', () => {
 
 console.log('\n== listVariants ==');
 
-const FIX = path.join(__dirname, '__fixtures__');
-
-test('discovers all .service files under deployDir', () => {
+await test('discovers all .service files under deployDir', () => {
   const v = listVariants(path.join(FIX, 'deploy'));
   const labels = v.map(x => x.label).sort();
   assert.deepStrictEqual(labels, ['d', 'malformed', 'mastercopy', 'mc-sells']);
 });
 
-test('parses ok variant correctly', () => {
+await test('parses ok variant correctly', () => {
   const v = listVariants(path.join(FIX, 'deploy'));
   const d = v.find(x => x.label === 'd');
   assert.strictEqual(d.service, 'polybot-strategy-d');
@@ -69,25 +70,25 @@ test('parses ok variant correctly', () => {
   assert.strictEqual(d.dataDir, 'scripts/strategy/data-d');
 });
 
-test('flags malformed variant with error but does not throw', () => {
+await test('flags malformed variant with error but does not throw', () => {
   const v = listVariants(path.join(FIX, 'deploy'));
   const m = v.find(x => x.label === 'malformed');
   assert.ok(m.error, 'expected error field on malformed variant');
 });
 
-test('parses mastercopy variant data dir', () => {
+await test('parses mastercopy variant data dir', () => {
   const v = listVariants(path.join(FIX, 'deploy'));
   const mc = v.find(x => x.label === 'mastercopy');
   assert.strictEqual(mc.dataDir, 'scripts/mastercopy/data-mc');
 });
 
-test('excludes non-variant unit files (polybot-snapshot)', () => {
+await test('excludes non-variant unit files (polybot-snapshot)', () => {
   const v = listVariants(path.join(FIX, 'deploy'));
   const labels = v.map(x => x.label);
   assert.ok(!labels.includes('snapshot'), 'snapshot should not be in variants');
 });
 
-test('mastercopy-sells variant gets label mc-sells', () => {
+await test('mastercopy-sells variant gets label mc-sells', () => {
   const v = listVariants(path.join(FIX, 'deploy'));
   const mcs = v.find(x => x.label === 'mc-sells');
   assert.ok(mcs, 'expected mc-sells label');
@@ -97,12 +98,12 @@ test('mastercopy-sells variant gets label mc-sells', () => {
 
 console.log('\n== readLedger ==');
 
-test('reads ledger and parses every line', () => {
+await test('reads ledger and parses every line', () => {
   const r = readLedger(path.join(FIX, 'scripts/strategy/data-d'));
   assert.strictEqual(r.records.length, 12, `got ${r.records.length}`);
 });
 
-test('derives totals correctly', () => {
+await test('derives totals correctly', () => {
   const r = readLedger(path.join(FIX, 'scripts/strategy/data-d'));
   assert.strictEqual(r.totals.entries, 5);
   assert.strictEqual(r.totals.exits, 5);
@@ -113,7 +114,7 @@ test('derives totals correctly', () => {
   assert.ok(Math.abs(r.totals.pnl - (-115.67)) < 0.01, `pnl was ${r.totals.pnl}`);
 });
 
-test('cumulativePnl is array of [ts, runningTotal]', () => {
+await test('cumulativePnl is array of [ts, runningTotal]', () => {
   const r = readLedger(path.join(FIX, 'scripts/strategy/data-d'));
   assert.ok(Array.isArray(r.cumulativePnl));
   assert.strictEqual(r.cumulativePnl.length, 5);
@@ -122,19 +123,19 @@ test('cumulativePnl is array of [ts, runningTotal]', () => {
   assert.ok(Math.abs(r.cumulativePnl[4][1] - (-115.67)) < 0.01);
 });
 
-test('returns empty record set when dir missing', () => {
+await test('returns empty record set when dir missing', () => {
   const r = readLedger(path.join(FIX, 'scripts/strategy/does-not-exist'));
   assert.deepStrictEqual(r.records, []);
   assert.strictEqual(r.totals.exits, 0);
   assert.strictEqual(r.error, 'no ledger yet');
 });
 
-test('parseErrors is 0 on clean fixture', () => {
+await test('parseErrors is 0 on clean fixture', () => {
   const r = readLedger(path.join(FIX, 'scripts/strategy/data-d'));
   assert.strictEqual(r.parseErrors, 0);
 });
 
-test('parseErrors counts malformed JSON lines without throwing', () => {
+await test('parseErrors counts malformed JSON lines without throwing', () => {
   // Build a synthetic ledger with one good + one bad + one good line.
   const tmp = path.join(require('os').tmpdir(), `polybot-ui-test-${Date.now()}`);
   require('fs').mkdirSync(tmp, { recursive: true });
@@ -148,27 +149,50 @@ test('parseErrors counts malformed JSON lines without throwing', () => {
   assert.strictEqual(r.parseErrors, 1, `expected 1 parseError, got ${r.parseErrors}`);
 });
 
-const { readState } = require('./readers');
-
 console.log('\n== readState ==');
 
-test('filters to open positions only', () => {
+await test('filters to open positions only', () => {
   const s = readState(path.join(FIX, 'scripts/strategy/data-d'));
   assert.strictEqual(s.positions.length, 1);
   assert.strictEqual(s.positions[0].slug, 'btc-updown-15m-1779999000');
 });
 
-test('aggregates decision counts by reason', () => {
+await test('aggregates decision counts by reason', () => {
   const s = readState(path.join(FIX, 'scripts/strategy/data-d'));
   assert.strictEqual(s.decisionCounts.below_threshold, 1);
   assert.strictEqual(s.decisionCounts.entered, 1);
 });
 
-test('returns empty shape when missing', () => {
+await test('returns empty shape when missing', () => {
   const s = readState(path.join(FIX, 'scripts/strategy/does-not-exist'));
   assert.deepStrictEqual(s.positions, []);
   assert.deepStrictEqual(s.decisionCounts, {});
 });
 
-console.log(`\n${failed === 0 ? 'PASS' : 'FAIL'} - ${failed} failure(s)`);
-process.exit(failed === 0 ? 0 : 1);
+console.log('\n== readJournal ==');
+
+await test('parseJournalOutput extracts ts and message', () => {
+  const out = '2026-05-24T16:00:00+0000 host pol[1]: [16:00:00] info  tick';
+  const r = parseJournalOutput(out);
+  assert.strictEqual(r.length, 1);
+  assert.ok(r[0].ts > 1779000000, `ts not parsed: ${r[0].ts}`);
+  assert.ok(r[0].message.includes('tick'));
+});
+
+await test('readJournal via fake binary returns lines', async () => {
+  const fakeBin = path.join(FIX, 'fake-journalctl.js');
+  const r = await readJournal('polybot-strategy-d', { bin: 'node', extraArgs: [fakeBin], lines: 200 });
+  assert.strictEqual(r.error, null);
+  assert.strictEqual(r.lines.length, 2);
+  assert.ok(r.lines[0].message.includes('tick'));
+});
+
+await test('readJournal returns error field on failure', async () => {
+  const r = await readJournal('polybot-strategy-d', { bin: '/path/does/not/exist', lines: 200 });
+  assert.strictEqual(r.lines.length, 0);
+  assert.ok(r.error, 'expected error field');
+});
+
+  console.log(`\n${failed === 0 ? 'PASS' : 'FAIL'} - ${failed} failure(s)`);
+  process.exit(failed === 0 ? 0 : 1);
+})();

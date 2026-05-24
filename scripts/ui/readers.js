@@ -3,6 +3,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
+const execFileP = promisify(execFile);
 
 const ROOT_PREFIX = '/opt/polybot/polymarket-cli/';
 function stripRootPrefix(absPath) {
@@ -156,4 +159,33 @@ function readState(dataDir) {
   return { positions, decisionCounts };
 }
 
-module.exports = { parseServiceFile, listVariants, readLedger, readState };
+function parseJournalOutput(stdout) {
+  return stdout.split('\n').filter(Boolean).map(line => {
+    // short-iso: "2026-05-24T16:00:00+0000 host unit[pid]: message..."
+    const m = line.match(/^(\S+)\s+\S+\s+\S+\s+(.+)$/);
+    if (!m) return { ts: 0, message: line };
+    const d = new Date(m[1]);
+    const ts = isNaN(d.getTime()) ? 0 : Math.floor(d.getTime() / 1000);
+    return { ts, message: m[2] };
+  });
+}
+
+async function readJournal(unitName, opts = {}) {
+  const {
+    lines = 200,
+    bin = process.env.JOURNALCTL_BIN || 'journalctl',
+    extraArgs = [],
+    timeoutMs = 3000,
+  } = opts;
+  const args = extraArgs.length
+    ? [...extraArgs, '-u', unitName, '-n', String(lines), '--no-pager', '--output=short-iso']
+    : ['-u', unitName, '-n', String(lines), '--no-pager', '--output=short-iso'];
+  try {
+    const { stdout } = await execFileP(bin, args, { timeout: timeoutMs, maxBuffer: 5 * 1024 * 1024 });
+    return { lines: parseJournalOutput(stdout), error: null };
+  } catch (e) {
+    return { lines: [], error: e.signal === 'SIGTERM' ? 'timeout' : (e.stderr || e.message || 'spawn failed') };
+  }
+}
+
+module.exports = { parseServiceFile, listVariants, readLedger, readState, readJournal, parseJournalOutput };
