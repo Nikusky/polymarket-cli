@@ -140,6 +140,36 @@ function startServer() {
     assert.strictEqual(r.status, 400);
   });
 
+  console.log('\n== cross-check: /api/state vs compare.js ==');
+
+  const { spawnSync } = require('child_process');
+
+  await test('strategy-d totals match compare.js output', async () => {
+    const r = await fetch(srv.url + '/api/state');
+    const j = await r.json();
+    const dApi = j.variants.find(v => v.label === 'd');
+
+    // compare.js uses `spec.split(':')` which breaks on Windows absolute paths
+    // (e.g. `C:\...`). Pass a relative path and set cwd to the fixture root.
+    const cmpOut = spawnSync(process.execPath, [
+      path.join(__dirname, '..', 'strategy', 'compare.js'),
+    ], {
+      cwd: FIX,
+      env: {
+        ...process.env,
+        STRATEGY_COMPARE_DIRS: 'd:./scripts/strategy/data-d',
+      },
+      encoding: 'utf8',
+    });
+    assert.strictEqual(cmpOut.status, 0, cmpOut.stderr);
+
+    const pnlMatch = cmpOut.stdout.match(/Realized PnL\s+\$(-?\d+\.\d+)/);
+    assert.ok(pnlMatch, `couldn't find Realized PnL in:\n${cmpOut.stdout}`);
+    const cmpPnl = parseFloat(pnlMatch[1]);
+    assert.ok(Math.abs(cmpPnl - dApi.totals.pnl) < 0.01,
+      `UI says ${dApi.totals.pnl}, compare.js says ${cmpPnl}`);
+  });
+
   if (srv) srv.proc.kill();
   console.log(`\n${failed === 0 ? 'PASS' : 'FAIL'} - ${failed} failure(s)`);
   process.exit(failed === 0 ? 0 : 1);
