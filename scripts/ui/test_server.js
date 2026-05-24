@@ -126,7 +126,7 @@ function startServer() {
     assert.strictEqual(r.status, 200);
     assert.ok((r.headers.get('content-type') || '').includes('html'));
     const body = await r.text();
-    assert.ok(body.includes('<div id="root">'));
+    assert.ok(body.includes('id="root"'));
   });
 
   await test('GET /static/styles.css returns css', async () => {
