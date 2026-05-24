@@ -1,0 +1,8 @@
+[Unit]
+Description=polyBOT mastercopy SELL inverse mirror test fixture
+[Service]
+User=polybot
+Environment=MASTERCOPY_DATA_DIR=/opt/polybot/polymarket-cli/scripts/mastercopy/data-mc-sells
+ExecStart=/usr/bin/node /opt/polybot/polymarket-cli/scripts/mastercopy/main.js 168
+[Install]
+WantedBy=multi-user.target

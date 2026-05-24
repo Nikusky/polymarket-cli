@@ -1,0 +1,7 @@
+[Unit]
+Description=polyBOT snapshot daemon test fixture
+[Service]
+User=polybot
+ExecStart=/usr/bin/node /opt/polybot/polymarket-cli/scripts/research/snapshot_orderbooks.js 11 168
+[Install]
+WantedBy=multi-user.target

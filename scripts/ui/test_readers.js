@@ -57,7 +57,7 @@ const FIX = path.join(__dirname, '__fixtures__');
 test('discovers all .service files under deployDir', () => {
   const v = listVariants(path.join(FIX, 'deploy'));
   const labels = v.map(x => x.label).sort();
-  assert.deepStrictEqual(labels, ['d', 'malformed', 'mastercopy']);
+  assert.deepStrictEqual(labels, ['d', 'malformed', 'mastercopy', 'mc-sells']);
 });
 
 test('parses ok variant correctly', () => {
@@ -79,6 +79,20 @@ test('parses mastercopy variant data dir', () => {
   const v = listVariants(path.join(FIX, 'deploy'));
   const mc = v.find(x => x.label === 'mastercopy');
   assert.strictEqual(mc.dataDir, 'scripts/mastercopy/data-mc');
+});
+
+test('excludes non-variant unit files (polybot-snapshot)', () => {
+  const v = listVariants(path.join(FIX, 'deploy'));
+  const labels = v.map(x => x.label);
+  assert.ok(!labels.includes('snapshot'), 'snapshot should not be in variants');
+});
+
+test('mastercopy-sells variant gets label mc-sells', () => {
+  const v = listVariants(path.join(FIX, 'deploy'));
+  const mcs = v.find(x => x.label === 'mc-sells');
+  assert.ok(mcs, 'expected mc-sells label');
+  assert.strictEqual(mcs.service, 'polybot-mastercopy-sells');
+  assert.strictEqual(mcs.dataDir, 'scripts/mastercopy/data-mc-sells');
 });
 
 console.log(`\n${failed === 0 ? 'PASS' : 'FAIL'} - ${failed} failure(s)`);

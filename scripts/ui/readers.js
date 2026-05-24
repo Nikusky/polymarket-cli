@@ -1,6 +1,16 @@
 // Pure parsers for polyBOT UI. No global state, no I/O assumptions —
 // every function takes its root path or data buffer as an argument.
 
+const fs = require('fs');
+const path = require('path');
+
+const ROOT_PREFIX = '/opt/polybot/polymarket-cli/';
+function stripRootPrefix(absPath) {
+  if (!absPath) return null;
+  if (absPath.startsWith(ROOT_PREFIX)) return absPath.slice(ROOT_PREFIX.length);
+  return null;  // outside our root — caller can decide what to do
+}
+
 function parseServiceFile(src) {
   const lines = src.split('\n').map(l => l.trim()).filter(Boolean);
   const env = {};
@@ -40,9 +50,6 @@ function parseServiceFile(src) {
   return { description, env, execStart: tokens, args: argsRaw };
 }
 
-const fs = require('fs');
-const path = require('path');
-
 function listVariants(deployDir) {
   let entries;
   try { entries = fs.readdirSync(deployDir); }
@@ -51,6 +58,9 @@ function listVariants(deployDir) {
   const out = [];
   for (const name of entries) {
     if (!name.endsWith('.service')) continue;
+    // Discovers polyBOT variant units. The legacy `polybot-strategy.service` (no
+    // letter suffix) is intentionally excluded — it predates the A/B/C/.../K split
+    // and is now dead config; will be removed in a future cleanup.
     const m = name.match(/^polybot-(strategy-([a-z]+)|mastercopy(-sells)?)\.service$/);
     if (!m) continue;
 
@@ -64,10 +74,8 @@ function listVariants(deployDir) {
     const parsed = parseServiceFile(src);
 
     let dataDir = null;
-    if (parsed.env && parsed.env.STRATEGY_DATA_DIR) {
-      dataDir = parsed.env.STRATEGY_DATA_DIR.replace('/opt/polybot/polymarket-cli/', '');
-    } else if (parsed.env && parsed.env.MASTERCOPY_DATA_DIR) {
-      dataDir = parsed.env.MASTERCOPY_DATA_DIR.replace('/opt/polybot/polymarket-cli/', '');
+    if (parsed.env) {
+      dataDir = stripRootPrefix(parsed.env.STRATEGY_DATA_DIR) || stripRootPrefix(parsed.env.MASTERCOPY_DATA_DIR);
     }
 
     out.push({
