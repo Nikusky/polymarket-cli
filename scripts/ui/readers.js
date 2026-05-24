@@ -91,4 +91,50 @@ function listVariants(deployDir) {
   return out;
 }
 
-module.exports = { parseServiceFile, listVariants };
+function readLedger(dataDir, _opts = {}) {
+  const ledgerPath = path.join(dataDir, 'strategy-ledger.jsonl');
+  let raw;
+  try { raw = fs.readFileSync(ledgerPath, 'utf8'); }
+  catch { return { records: [], totals: emptyTotals(), cumulativePnl: [], parseErrors: 0, error: 'no ledger yet' }; }
+
+  const records = [];
+  let parseErrors = 0;
+  for (const line of raw.split('\n')) {
+    if (!line) continue;
+    try { records.push(JSON.parse(line)); }
+    catch { parseErrors++; }
+  }
+
+  const totals = emptyTotals();
+  for (const r of records) {
+    if (r.kind === 'entry') {
+      totals.entries++;
+      totals.deployed += Number(r.paperCost || 0);
+    } else if (r.kind === 'exit') {
+      totals.exits++;
+      if (r.won === true) totals.wins++;
+      else totals.losses++;
+      if (r.stoppedOut === true) totals.stopExits++;
+      totals.pnl += Number(r.pnl || 0);
+    }
+  }
+
+  const cumulativePnl = [];
+  let running = 0;
+  for (const r of records) {
+    if (r.kind !== 'exit') continue;
+    running += Number(r.pnl || 0);
+    cumulativePnl.push([r.ts, Math.round(running * 100) / 100]);
+  }
+
+  // Round pnl to 2 decimals to absorb fp noise.
+  totals.pnl = Math.round(totals.pnl * 100) / 100;
+
+  return { records, totals, cumulativePnl, parseErrors };
+}
+
+function emptyTotals() {
+  return { entries: 0, exits: 0, wins: 0, losses: 0, stopExits: 0, pnl: 0, deployed: 0 };
+}
+
+module.exports = { parseServiceFile, listVariants, readLedger };
