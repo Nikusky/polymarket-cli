@@ -1,0 +1,6 @@
+[Unit]
+Description=intentionally broken - missing ExecStart
+[Service]
+User=polybot
+[Install]
+WantedBy=multi-user.target

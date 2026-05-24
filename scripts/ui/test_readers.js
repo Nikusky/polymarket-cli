@@ -1,5 +1,6 @@
 const assert = require('assert');
-const { parseServiceFile } = require('./readers');
+const path = require('path');
+const { parseServiceFile, listVariants } = require('./readers');
 
 let failed = 0;
 function test(name, fn) {
@@ -47,6 +48,37 @@ test('returns {error} when ExecStart args are non-numeric', () => {
   assert.strictEqual(r.args, null);
   assert.ok(r.error, 'expected error field');
   assert.match(r.error, /not numeric/);
+});
+
+console.log('\n== listVariants ==');
+
+const FIX = path.join(__dirname, '__fixtures__');
+
+test('discovers all .service files under deployDir', () => {
+  const v = listVariants(path.join(FIX, 'deploy'));
+  const labels = v.map(x => x.label).sort();
+  assert.deepStrictEqual(labels, ['d', 'malformed', 'mastercopy']);
+});
+
+test('parses ok variant correctly', () => {
+  const v = listVariants(path.join(FIX, 'deploy'));
+  const d = v.find(x => x.label === 'd');
+  assert.strictEqual(d.service, 'polybot-strategy-d');
+  assert.strictEqual(d.env.MAX_FILL_PRICE, '0.92');
+  assert.deepStrictEqual(d.args, { observeMin: 11, threshBps: 6, positionUsd: 100, runtimeHours: 168 });
+  assert.strictEqual(d.dataDir, 'scripts/strategy/data-d');
+});
+
+test('flags malformed variant with error but does not throw', () => {
+  const v = listVariants(path.join(FIX, 'deploy'));
+  const m = v.find(x => x.label === 'malformed');
+  assert.ok(m.error, 'expected error field on malformed variant');
+});
+
+test('parses mastercopy variant data dir', () => {
+  const v = listVariants(path.join(FIX, 'deploy'));
+  const mc = v.find(x => x.label === 'mastercopy');
+  assert.strictEqual(mc.dataDir, 'scripts/mastercopy/data-mc');
 });
 
 console.log(`\n${failed === 0 ? 'PASS' : 'FAIL'} - ${failed} failure(s)`);

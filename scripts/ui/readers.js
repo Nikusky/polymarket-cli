@@ -40,4 +40,47 @@ function parseServiceFile(src) {
   return { description, env, execStart: tokens, args: argsRaw };
 }
 
-module.exports = { parseServiceFile };
+const fs = require('fs');
+const path = require('path');
+
+function listVariants(deployDir) {
+  let entries;
+  try { entries = fs.readdirSync(deployDir); }
+  catch { return []; }
+
+  const out = [];
+  for (const name of entries) {
+    if (!name.endsWith('.service')) continue;
+    const m = name.match(/^polybot-(strategy-([a-z]+)|mastercopy(-sells)?)\.service$/);
+    if (!m) continue;
+
+    let label;
+    const service = name.replace('.service', '');
+    if (m[2]) label = m[2];                              // strategy-d -> d
+    else if (m[3]) label = 'mc-sells';                   // mastercopy-sells -> mc-sells
+    else label = 'mastercopy';                           // mastercopy alone -> mastercopy
+
+    const src = fs.readFileSync(path.join(deployDir, name), 'utf8');
+    const parsed = parseServiceFile(src);
+
+    let dataDir = null;
+    if (parsed.env && parsed.env.STRATEGY_DATA_DIR) {
+      dataDir = parsed.env.STRATEGY_DATA_DIR.replace('/opt/polybot/polymarket-cli/', '');
+    } else if (parsed.env && parsed.env.MASTERCOPY_DATA_DIR) {
+      dataDir = parsed.env.MASTERCOPY_DATA_DIR.replace('/opt/polybot/polymarket-cli/', '');
+    }
+
+    out.push({
+      label,
+      service,
+      description: parsed.description,
+      env: parsed.env || {},
+      args: parsed.args || null,
+      dataDir,
+      error: parsed.error || null,
+    });
+  }
+  return out;
+}
+
+module.exports = { parseServiceFile, listVariants };

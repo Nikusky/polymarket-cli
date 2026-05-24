@@ -1,0 +1,11 @@
+[Unit]
+Description=polyBOT strategy paper bot - variant D test fixture
+[Service]
+User=polybot
+WorkingDirectory=/opt/polybot/polymarket-cli
+Environment=STRATEGY_DATA_DIR=/opt/polybot/polymarket-cli/scripts/strategy/data-d
+Environment=MAX_FILL_PRICE=0.92
+Environment=STRATEGY_BLACKOUT_HOURS=13,17,22
+ExecStart=/usr/bin/node /opt/polybot/polymarket-cli/scripts/strategy/main.js 11 6 100 168
+[Install]
+WantedBy=multi-user.target

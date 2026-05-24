@@ -1,0 +1,10 @@
+[Unit]
+Description=polyBOT mastercopy paper mirror test fixture
+[Service]
+User=polybot
+WorkingDirectory=/opt/polybot/polymarket-cli
+Environment=MASTERCOPY_DATA_DIR=/opt/polybot/polymarket-cli/scripts/mastercopy/data-mc
+Environment=MASTER_ADDRESSES=0xce25e214d5cfe4f459cf67f08df581885aae7fdc
+ExecStart=/usr/bin/node /opt/polybot/polymarket-cli/scripts/mastercopy/main.js 168
+[Install]
+WantedBy=multi-user.target
