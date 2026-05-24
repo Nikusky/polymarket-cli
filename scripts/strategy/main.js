@@ -55,6 +55,7 @@ const ALLOWED_SIDES = RAW_SIDES === 'up'
   : RAW_SIDES === 'down'
     ? new Set(['Down'])
     : new Set(['Up', 'Down']);
+const STOP_LOSS_RETBPS_REVERSAL = parseFloat(process.env.STOP_LOSS_RETBPS_REVERSAL || 'Infinity');
 const STOP_AT = Date.now() + MAX_HOURS * 3600 * 1000;
 const POLL_MS = 2000;
 
@@ -185,6 +186,70 @@ async function makeDecision(openTs, state) {
   saveState(state);
 }
 
+// Stop-loss: if STOP_LOSS_RETBPS_REVERSAL is finite, on each tick recompute the
+// current return-from-open in bps. If the move has reversed against our position
+// by >= threshold, paper-sell the position at the current best-bid and book the
+// recovered cash (or loss) as a stop-exit. Records `kind:"exit"` with
+// `stoppedOut: true` and `winner: "stopped"` so existing aggregators keep working.
+async function checkStopLoss(state) {
+  if (!Number.isFinite(STOP_LOSS_RETBPS_REVERSAL)) return;
+  const now = Math.floor(Date.now() / 1000);
+  const open = Object.values(state.positions).filter(p => !p.settled && p.resolveTs > now);
+  if (!open.length) return;
+
+  // One price fetch per tick, shared across positions.
+  const pxNow = await getPrice();
+  if (!pxNow) return;
+
+  let dirty = false;
+  for (const pos of open) {
+    const curRetBps = Math.log(pxNow / pos.btcAtOpen) * 10000;
+    const reversal = pos.betSide === 'Up'
+      ? pos.observeBps - curRetBps
+      : curRetBps - pos.observeBps;
+    if (reversal < STOP_LOSS_RETBPS_REVERSAL) continue;
+
+    const book = fetchBook(pos.tokenId);
+    if (!book) continue;
+    const bids = (book.bids || []).slice().sort((a, b) => parseFloat(b.price) - parseFloat(a.price));
+    if (!bids.length) continue;
+    // Walk the bid ladder to fully unwind `paperShares`.
+    let remainingShares = pos.paperShares;
+    let recovered = 0;
+    for (const lvl of bids) {
+      const px = parseFloat(lvl.price);
+      const sz = parseFloat(lvl.size);
+      const take = Math.min(remainingShares, sz);
+      recovered += take * px;
+      remainingShares -= take;
+      if (remainingShares <= 1e-6) break;
+    }
+    // If the book couldn't absorb all shares, mark the unsold remainder as worthless
+    // (settlement will assign 0 if loser side, so this is the conservative path).
+    const avgExitPrice = recovered / (pos.paperShares - remainingShares || 1);
+    const pnl = recovered - pos.paperCost;
+
+    pos.settled = true;
+    pos.stopped = true;
+    pos.stopExitTs = now;
+    pos.stopExitPrice = avgExitPrice;
+    pos.realizedPnl = pnl;
+
+    append({
+      kind: 'exit', ts: now, slug: pos.slug,
+      won: false, winner: 'stopped', stoppedOut: true,
+      pnl, betSide: pos.betSide,
+      avgFillPrice: pos.avgFillPrice, observeBps: pos.observeBps,
+      paperShares: pos.paperShares, paperCost: pos.paperCost,
+      stopExitPrice: avgExitPrice, entryRetBps: pos.observeBps, stopRetBps: curRetBps,
+      unsoldShares: remainingShares,
+    });
+    log('STOP ', `${pos.betSide} bid=${avgExitPrice.toFixed(3)} recovered=$${recovered.toFixed(2)} pnl=$${pnl.toFixed(2)} reversal=${reversal.toFixed(1)}bps  ${pos.slug.slice(-10)}`);
+    dirty = true;
+  }
+  if (dirty) saveState(state);
+}
+
 async function settleOpenPositions(state) {
   const now = Math.floor(Date.now() / 1000);
   let dirty = false;
@@ -218,6 +283,7 @@ async function tick(state) {
   if (minuteInWin >= OBSERVE_MIN && minuteInWin < OBSERVE_MIN + 1) {
     await makeDecision(curSlot, state);
   }
+  await checkStopLoss(state);
   await settleOpenPositions(state);
   // GC
   for (const slug of Object.keys(state.positions)) {
@@ -232,7 +298,8 @@ async function tick(state) {
 
 async function main() {
   const blackoutStr = BLACKOUT_HOURS.size ? [...BLACKOUT_HOURS].sort((a, b) => a - b).join(',') : 'none';
-  log('info', `strategy bot starting | market=${SLUG_PREFIX}* slot=${SLOT_SECS}s price=${PRICE_MODULE} observe=${OBSERVE_MIN} thresh=${THRESH_BPS}bps maxObs=${MAX_OBS_BPS}bps size=$${POSITION_USD} maxFill=${MAX_FILL_PRICE} sides=${RAW_SIDES} blackout=${blackoutStr} runtime=${MAX_HOURS}h`);
+  const stopStr = Number.isFinite(STOP_LOSS_RETBPS_REVERSAL) ? `${STOP_LOSS_RETBPS_REVERSAL}bps` : 'off';
+  log('info', `strategy bot starting | market=${SLUG_PREFIX}* slot=${SLOT_SECS}s price=${PRICE_MODULE} observe=${OBSERVE_MIN} thresh=${THRESH_BPS}bps maxObs=${MAX_OBS_BPS}bps size=$${POSITION_USD} maxFill=${MAX_FILL_PRICE} sides=${RAW_SIDES} blackout=${blackoutStr} stopLoss=${stopStr} runtime=${MAX_HOURS}h`);
   log('info', `ledger=${LEDGER}`);
   const state = loadState();
   while (Date.now() < STOP_AT) {

@@ -70,6 +70,17 @@ console.log('\n== main.js startup log (no network) ==');
   test('default startup shows sides=both', () => {
     assert.ok(r.stdout.includes('sides=both'));
   });
+  test('default startup shows stopLoss=off', () => {
+    assert.ok(r.stdout.includes('stopLoss=off'), r.stdout);
+  });
+}
+
+// Stop-loss enabled
+{
+  const r = runMain({ STOP_LOSS_RETBPS_REVERSAL: '10' });
+  test('STOP_LOSS_RETBPS_REVERSAL=10 startup shows stopLoss=10bps', () => {
+    assert.ok(r.stdout.includes('stopLoss=10bps'), r.stdout || r.stderr);
+  });
 }
 
 // 5m BTC variant
