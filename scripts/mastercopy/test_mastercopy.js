@@ -137,6 +137,67 @@ test('settleMirror cheap fill WIN: bought Up at 0.05, Up wins', () => {
   assert.ok(Math.abs(exit.pnl - 19) < 1e-9);
 });
 
+test('isCandidateTrade accepts SELL when allowedSides includes SELL', () => {
+  const t = mkTrade({ side: 'SELL' });
+  assert.ok(lib.isCandidateTrade(t, {
+    slugPrefixes: ['btc-updown-15m-'],
+    lastSeenTs: 0,
+    allowedSides: new Set(['SELL']),
+  }));
+});
+
+test('isCandidateTrade rejects BUY when allowedSides is SELL-only', () => {
+  const t = mkTrade({ side: 'BUY' });
+  assert.ok(!lib.isCandidateTrade(t, {
+    slugPrefixes: ['btc-updown-15m-'],
+    lastSeenTs: 0,
+    allowedSides: new Set(['SELL']),
+  }));
+});
+
+test('isCandidateTrade accepts both BUY and SELL when allowedSides has both', () => {
+  const sides = new Set(['BUY', 'SELL']);
+  const baseOpts = { slugPrefixes: ['btc-updown-15m-'], lastSeenTs: 0, allowedSides: sides };
+  assert.ok(lib.isCandidateTrade(mkTrade({ side: 'BUY' }), baseOpts));
+  assert.ok(lib.isCandidateTrade(mkTrade({ side: 'SELL' }), baseOpts));
+});
+
+test('buildMirror records tradeSide from the trade', () => {
+  const mBuy = lib.buildMirror(mkTrade({ side: 'BUY' }), 1, 1779399965);
+  assert.strictEqual(mBuy.tradeSide, 'BUY');
+  const mSell = lib.buildMirror(mkTrade({ side: 'SELL' }), 1, 1779399965);
+  assert.strictEqual(mSell.tradeSide, 'SELL');
+});
+
+test('settleMirror SELL + outcome-wins is a loss for the seller', () => {
+  // Master sold Up at $0.45; we paper-mirrored (1/0.45 shares short, $1 cash collected).
+  // Up wins → seller owes paperShares * $1, keeps paperSize.
+  // PnL = paperSize - paperShares = 1 - (1/0.45) ~= -1.2222
+  const m = lib.buildMirror(mkTrade({ side: 'SELL', outcome: 'Up', price: 0.45 }), 1, 1779399965);
+  const exit = lib.settleMirror(m, 'Up', 1779400860);
+  assert.strictEqual(exit.tradeSide, 'SELL');
+  assert.strictEqual(exit.won, true); // outcome matched winner
+  assert.ok(Math.abs(exit.pnl - (1 - 1/0.45)) < 1e-9, `pnl=${exit.pnl}`);
+  assert.ok(exit.pnl < 0, 'SELL + outcome wins must be a loss');
+});
+
+test('settleMirror SELL + outcome-loses is a win for the seller', () => {
+  // Master sold Up at $0.45; Down wins -> Up token worthless, seller keeps paperSize.
+  const m = lib.buildMirror(mkTrade({ side: 'SELL', outcome: 'Up', price: 0.45 }), 1, 1779399965);
+  const exit = lib.settleMirror(m, 'Down', 1779400860);
+  assert.strictEqual(exit.won, false);
+  assert.strictEqual(exit.pnl, 1);
+});
+
+test('settleMirror missing tradeSide defaults to BUY math (back-compat)', () => {
+  // Legacy mirror records (pre-2026-05-23) lack tradeSide; they must settle as BUYs.
+  const m = lib.buildMirror(mkTrade({ outcome: 'Up', price: 0.45 }), 1, 1779399965);
+  delete m.tradeSide;
+  const exit = lib.settleMirror(m, 'Up', 1779400860);
+  assert.strictEqual(exit.tradeSide, 'BUY');
+  assert.ok(Math.abs(exit.pnl - (1/0.45 - 1)) < 1e-9);
+});
+
 test('selectNewTrades filters across multiple masters by per-master lastSeen', () => {
   const trades = [
     mkTrade({ proxyWallet: '0xaaa', timestamp: 1000 }),
@@ -296,6 +357,32 @@ const main = require('./main');
     const pos = Object.values(state.positions)[0];
     assert.strictEqual(pos.actualWinner, 'Down');
     assert.strictEqual(pos.realizedPnl, -1);
+  });
+
+  await test('pollOnce in SELL mode mirrors SELL trades and ignores BUY trades', async () => {
+    const tmpDirSell = fs.mkdtempSync(path.join(os.tmpdir(), 'mc-test-sell-'));
+    process.env.STRATEGY_DATA_DIR = tmpDirSell;
+    process.env.MIRROR_SIDES = 'SELL';
+    delete require.cache[require.resolve('./main')];
+    const mSell = require('./main');
+    const state = { lastSeenByMaster: {}, positions: {} };
+    const buyTrade = mkTrade({
+      side: 'BUY', price: 0.40, transactionHash: '0xBUY', timestamp: 1779399960,
+    });
+    const sellTrade = mkTrade({
+      side: 'SELL', price: 0.55, transactionHash: '0xSELL', timestamp: 1779399970,
+    });
+    const r = await mSell.pollOnce(state, {
+      fetchTrades: async () => [buyTrade, sellTrade],
+      fetchWinner: async () => null,
+      now: () => 1779399975,
+    });
+    assert.strictEqual(r.newMirrors, 1, 'only SELL should mirror');
+    const pos = Object.values(state.positions)[0];
+    assert.strictEqual(pos.tradeSide, 'SELL');
+    assert.strictEqual(pos.masterPrice, 0.55);
+    // Restore default so subsequent test runs are not contaminated.
+    delete process.env.MIRROR_SIDES;
   });
 
   console.log(`\n${failed === 0 ? 'PASS' : 'FAIL'} - ${failed} failure(s)`);

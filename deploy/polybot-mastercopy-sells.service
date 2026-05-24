@@ -1,0 +1,31 @@
+[Unit]
+Description=polyBOT mastercopy-sells daemon — paper inverse-mirror of cE25/b55fa/Truthful-Firewall btc-updown-15m SELLs at $1 size. Tests whether the SELL side of the masters' flow is the profitable half.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=polybot
+Group=polybot
+WorkingDirectory=/opt/polybot/polymarket-cli
+Environment=STRATEGY_DATA_DIR=/opt/polybot/polymarket-cli/scripts/mastercopy/data-mc-sells
+Environment=MIRROR_SIZE_USD=1
+Environment=MIRROR_SIDES=SELL
+Environment=SLUG_PREFIXES=btc-updown-15m-
+Environment=POLL_INTERVAL_SEC=30
+Environment=MAX_LAG_SEC=7200
+Environment=MASTER_ADDRESSES=0xce25e214d5cfe4f459cf67f08df581885aae7fdc,0xb55fa1296e6ec55d0ce53d93b9237389f11764d4,0xa9239c0ca3dee2d03232481212474e1d781b6704
+ExecStart=/usr/bin/node /opt/polybot/polymarket-cli/scripts/mastercopy/main.js 168
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=polybot-mastercopy-sells
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/opt/polybot/polymarket-cli/scripts/mastercopy/data-mc-sells
+
+[Install]
+WantedBy=multi-user.target

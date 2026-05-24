@@ -4,10 +4,13 @@
 const ALLOWED_SIDES = new Set(['BUY']);
 
 // Match an incoming master trade against the daemon's filter envelope.
-// Returns true iff the trade is a fresh BUY in a tracked slug-prefix.
+// `opts.allowedSides` (a Set) overrides the default BUY-only behaviour;
+// pass `new Set(['SELL'])` for the inverse-mirror experiment, or
+// `new Set(['BUY','SELL'])` to mirror both halves of the master's flow.
 function isCandidateTrade(trade, opts) {
   if (!trade || typeof trade !== 'object') return false;
-  if (!ALLOWED_SIDES.has(trade.side)) return false;
+  const allowed = opts.allowedSides || ALLOWED_SIDES;
+  if (!allowed.has(trade.side)) return false;
   if (!opts.slugPrefixes.some((p) => (trade.slug || '').startsWith(p))) return false;
   if (typeof trade.timestamp !== 'number') return false;
   if (trade.timestamp <= opts.lastSeenTs) return false;
@@ -41,6 +44,7 @@ function isFresh(trade, nowTs, maxLagSec) {
 }
 
 // Build a mirror ledger record from a raw master trade. Pure.
+// Records `tradeSide` so settleMirror can branch on BUY vs SELL paper math.
 function buildMirror(trade, mirrorSizeUsd, nowTs) {
   const slot = parseSlot(trade.slug);
   if (!slot) return null;
@@ -54,6 +58,7 @@ function buildMirror(trade, mirrorSizeUsd, nowTs) {
     masterTradeTs: trade.timestamp,
     masterPrice: trade.price,
     masterTxHash: trade.transactionHash,
+    tradeSide: trade.side,
     outcome: trade.outcome,
     paperSize: mirrorSizeUsd,
     paperShares,
@@ -64,18 +69,30 @@ function buildMirror(trade, mirrorSizeUsd, nowTs) {
 }
 
 // Resolve a mirror position given the gamma winner. Returns an exit record.
+// Branches on mirror.tradeSide for the inverse-mirror experiment:
+//   BUY  + outcome wins  → +paperShares − paperSize   (long pays at $1 per share)
+//   BUY  + outcome loses → −paperSize                  (long worth $0)
+//   SELL + outcome wins  → +paperSize − paperShares   (short owes $1 per share)
+//   SELL + outcome loses → +paperSize                  (short keeps the premium)
+// Missing tradeSide is treated as BUY for backward compat with legacy records.
 function settleMirror(mirror, winner, nowTs) {
-  const won = mirror.outcome === winner;
-  // Paper: bought paperShares at masterPrice (cost = paperSize).
-  // Win payout = paperShares * $1 = paperShares. Net = paperShares - paperSize.
-  // Loss = -paperSize.
-  const pnl = won ? mirror.paperShares - mirror.paperSize : -mirror.paperSize;
+  const outcomeWon = mirror.outcome === winner;
+  const isShort = mirror.tradeSide === 'SELL';
+  let pnl;
+  if (outcomeWon) {
+    pnl = isShort ? (mirror.paperSize - mirror.paperShares) : (mirror.paperShares - mirror.paperSize);
+  } else {
+    pnl = isShort ? mirror.paperSize : -mirror.paperSize;
+  }
+  // `won` historically meant "the outcome we mirrored matched the winner";
+  // for SELL records, profitability is the inverse (pnl > 0 ↔ outcome lost).
   return {
     kind: 'exit',
     ts: nowTs,
     slug: mirror.slug,
     master: mirror.master,
-    won,
+    tradeSide: mirror.tradeSide || 'BUY',
+    won: outcomeWon,
     winner,
     outcome: mirror.outcome,
     pnl,

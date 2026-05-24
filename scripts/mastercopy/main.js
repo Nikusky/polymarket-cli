@@ -42,6 +42,12 @@ const POLL_INTERVAL_SEC = parseInt(process.env.POLL_INTERVAL_SEC || '30', 10);
 // Trades whose slot resolved more than MAX_LAG_SEC ago are dropped — we can't
 // usefully paper-mirror them (gamma prunes old closed markets).
 const MAX_LAG_SEC = parseInt(process.env.MAX_LAG_SEC || '7200', 10);
+// MIRROR_SIDES picks which half of the master's flow to paper-replicate.
+// Default 'BUY' = legacy behaviour. Set to 'SELL' to test the inverse hypothesis
+// (the masters' SELL flow is the profitable half) or 'BUY,SELL' for both.
+const MIRROR_SIDES = new Set(
+  (process.env.MIRROR_SIDES || 'BUY').split(',').map((s) => s.trim().toUpperCase()).filter(Boolean)
+);
 const MAX_HOURS = parseFloat(process.argv[2] || '168');
 const STOP_AT = Date.now() + MAX_HOURS * 3600 * 1000;
 
@@ -106,6 +112,7 @@ async function pollOnce(state, deps = {}) {
     const candidates = selectNewTrades(trades, {
       slugPrefixes: SLUG_PREFIXES,
       lastSeenByMaster: state.lastSeenByMaster,
+      allowedSides: MIRROR_SIDES,
     });
     for (const t of candidates) {
       if (!isFresh(t, nowFn(), MAX_LAG_SEC)) continue;
@@ -150,7 +157,8 @@ async function pollOnce(state, deps = {}) {
 
 async function main() {
   log('info', `mastercopy starting | masters=${MASTERS.length} prefixes=${SLUG_PREFIXES.join(',')} ` +
-              `size=$${MIRROR_SIZE_USD} poll=${POLL_INTERVAL_SEC}s maxLag=${MAX_LAG_SEC}s runtime=${MAX_HOURS}h`);
+              `sides=${[...MIRROR_SIDES].join('/')} size=$${MIRROR_SIZE_USD} poll=${POLL_INTERVAL_SEC}s ` +
+              `maxLag=${MAX_LAG_SEC}s runtime=${MAX_HOURS}h`);
   log('info', `ledger=${LEDGER}`);
   const state = loadState();
   while (Date.now() < STOP_AT) {
