@@ -103,6 +103,22 @@ function startServer() {
     assert.strictEqual(r.status, 400);
   });
 
+  console.log('\n== server: /api/logs/:label ==');
+
+  await test('/api/logs/d returns parsed lines via fake journalctl', async () => {
+    const r = await fetch(srv.url + '/api/logs/d');
+    assert.strictEqual(r.status, 200);
+    const j = await r.json();
+    assert.strictEqual(j.error, null);
+    assert.strictEqual(j.lines.length, 2);
+    assert.ok(j.lines[0].message.includes('tick'));
+  });
+
+  await test('/api/logs/<<bad>> rejects invalid label', async () => {
+    const r = await fetch(srv.url + '/api/logs/' + encodeURIComponent('../oops'));
+    assert.strictEqual(r.status, 400);
+  });
+
   if (srv) srv.proc.kill();
   console.log(`\n${failed === 0 ? 'PASS' : 'FAIL'} - ${failed} failure(s)`);
   process.exit(failed === 0 ? 0 : 1);

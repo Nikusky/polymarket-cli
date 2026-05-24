@@ -48,6 +48,20 @@ async function handle(req, res) {
   const url = new URL(req.url, 'http://x');
   const p = url.pathname;
   try {
+    const logsMatch = p.match(/^\/api\/logs\/([^/]+)$/);
+    if (logsMatch) {
+      const label = decodeURIComponent(logsMatch[1]);
+      if (!/^[a-z]{1,12}(-[a-z]+)?$/.test(label)) return json(res, 400, { error: 'invalid label' });
+      const variants = readers.listVariants(path.join(ROOT, 'deploy'));
+      const v = variants.find(x => x.label === label);
+      if (!v) return json(res, 404, { error: 'unknown variant' });
+      const lines = parseInt(url.searchParams.get('lines') || '200', 10);
+      const extraArgs = process.env.POLYBOT_UI_JOURNALCTL_ARGS
+        ? [process.env.POLYBOT_UI_JOURNALCTL_ARGS]
+        : [];
+      const result = await readers.readJournal(v.service, { lines, extraArgs });
+      return json(res, 200, result);
+    }
     const variantMatch = p.match(/^\/api\/variant\/([^/]+)$/);
     if (variantMatch) {
       const label = decodeURIComponent(variantMatch[1]);
