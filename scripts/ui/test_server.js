@@ -50,6 +50,35 @@ function startServer() {
     assert.ok(typeof j.uptime === 'number');
   });
 
+  console.log('\n== server: /api/state ==');
+
+  await test('/api/state returns aggregate with all fixture variants', async () => {
+    const r = await fetch(srv.url + '/api/state');
+    assert.strictEqual(r.status, 200);
+    const j = await r.json();
+    assert.ok(typeof j.generatedAt === 'number');
+    const labels = j.variants.map(v => v.label).sort();
+    // After Task 2's fix, fixtures include: d, malformed, mastercopy, mc-sells (snapshot is excluded by regex)
+    assert.deepStrictEqual(labels, ['d', 'malformed', 'mastercopy', 'mc-sells']);
+  });
+
+  await test('/api/state d variant has correct totals', async () => {
+    const r = await fetch(srv.url + '/api/state');
+    const j = await r.json();
+    const d = j.variants.find(v => v.label === 'd');
+    assert.strictEqual(d.totals.entries, 5);
+    assert.strictEqual(d.totals.exits, 5);
+    assert.ok(Math.abs(d.totals.pnl - (-115.67)) < 0.01);
+    assert.strictEqual(d.totals.stopExits, 1);
+  });
+
+  await test('/api/state malformed variant carries error, no crash', async () => {
+    const r = await fetch(srv.url + '/api/state');
+    const j = await r.json();
+    const m = j.variants.find(v => v.label === 'malformed');
+    assert.ok(m.error, 'expected error on malformed variant');
+  });
+
   if (srv) srv.proc.kill();
   console.log(`\n${failed === 0 ? 'PASS' : 'FAIL'} - ${failed} failure(s)`);
   process.exit(failed === 0 ? 0 : 1);
