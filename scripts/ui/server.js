@@ -48,6 +48,26 @@ async function handle(req, res) {
   const url = new URL(req.url, 'http://x');
   const p = url.pathname;
   try {
+    const variantMatch = p.match(/^\/api\/variant\/([^/]+)$/);
+    if (variantMatch) {
+      const label = decodeURIComponent(variantMatch[1]);
+      if (!/^[a-z]{1,12}(-[a-z]+)?$/.test(label)) return json(res, 400, { error: 'invalid label' });
+      const variants = readers.listVariants(path.join(ROOT, 'deploy'));
+      const v = variants.find(x => x.label === label);
+      if (!v) return json(res, 404, { error: 'unknown variant' });
+      const dataDir = v.dataDir ? path.join(ROOT, v.dataDir) : null;
+      const ledger = dataDir ? readers.readLedger(dataDir) : { records: [], totals: {}, error: 'no dataDir' };
+      const state = dataDir ? readers.readState(dataDir) : { positions: [], decisionCounts: {} };
+      return json(res, 200, {
+        spec: v,
+        totals: ledger.totals,
+        ledger: (ledger.records || []).slice(-200),
+        positions: state.positions,
+        decisionCounts: state.decisionCounts,
+        parseErrors: ledger.parseErrors || 0,
+        error: ledger.error || null,
+      });
+    }
     if (p === '/api/state') return json(res, 200, buildStateAggregate());
     if (p === '/api/health') return json(res, 200, {
       ok: true,

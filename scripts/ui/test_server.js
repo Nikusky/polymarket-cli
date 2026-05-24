@@ -79,6 +79,30 @@ function startServer() {
     assert.ok(m.error, 'expected error on malformed variant');
   });
 
+  console.log('\n== server: /api/variant/:label ==');
+
+  await test('/api/variant/d returns full data', async () => {
+    const r = await fetch(srv.url + '/api/variant/d');
+    assert.strictEqual(r.status, 200);
+    const j = await r.json();
+    assert.strictEqual(j.spec.label, 'd');
+    assert.ok(j.ledger.length > 0, 'expected non-empty ledger');
+    assert.strictEqual(j.totals.entries, 5);
+    assert.strictEqual(j.positions.length, 1);
+  });
+
+  await test('/api/variant/unknown returns 404 with error JSON', async () => {
+    const r = await fetch(srv.url + '/api/variant/unknown');
+    assert.strictEqual(r.status, 404);
+    const j = await r.json();
+    assert.ok(j.error);
+  });
+
+  await test('/api/variant/<<bad>> rejects invalid label', async () => {
+    const r = await fetch(srv.url + '/api/variant/' + encodeURIComponent('../etc'));
+    assert.strictEqual(r.status, 400);
+  });
+
   if (srv) srv.proc.kill();
   console.log(`\n${failed === 0 ? 'PASS' : 'FAIL'} - ${failed} failure(s)`);
   process.exit(failed === 0 ? 0 : 1);
