@@ -36,21 +36,25 @@ function parseServiceFile(src) {
 
   const tokens = execStart;
 
-  if (tokens.length < 6) {
-    return { description, env, execStart: tokens, args: null, error: 'ExecStart has fewer than 6 tokens' };
+  // Try strategy shape first: 4 trailing numeric tokens -> full args.
+  if (tokens.length >= 6) {
+    const tail = tokens.slice(-4);
+    const nums = tail.map(t => Number(t));
+    if (nums.every(Number.isFinite)) {
+      return {
+        description, env, execStart: tokens,
+        args: { observeMin: parseInt(tail[0], 10), threshBps: parseFloat(tail[1]), positionUsd: parseFloat(tail[2]), runtimeHours: parseFloat(tail[3]) },
+      };
+    }
   }
-
-  const argsRaw = {
-    observeMin: parseInt(tokens[tokens.length - 4], 10),
-    threshBps: parseFloat(tokens[tokens.length - 3]),
-    positionUsd: parseFloat(tokens[tokens.length - 2]),
-    runtimeHours: parseFloat(tokens[tokens.length - 1]),
-  };
-  if (!Object.values(argsRaw).every(Number.isFinite)) {
-    return { description, env, execStart: tokens, args: null, error: 'ExecStart args not numeric' };
+  // Fallback: try mastercopy shape: last token = runtimeHours.
+  const last = tokens[tokens.length - 1];
+  const lastNum = parseFloat(last);
+  if (Number.isFinite(lastNum)) {
+    return { description, env, execStart: tokens, args: { runtimeHours: lastNum } };
   }
-
-  return { description, env, execStart: tokens, args: argsRaw };
+  // Nothing usable — args = null, no error (ExecStart exists, just unparseable).
+  return { description, env, execStart: tokens, args: null };
 }
 
 function listVariants(deployDir) {

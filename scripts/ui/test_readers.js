@@ -37,20 +37,19 @@ await test('returns {error} when ExecStart missing', () => {
   assert.match(r.error, /ExecStart/);
 });
 
-await test('returns {error} when ExecStart has fewer than 6 tokens', () => {
-  const src = '[Service]\nExecStart=/usr/bin/node /main.js\n';
+await test('returns partial args {runtimeHours} for short ExecStart (mastercopy shape)', () => {
+  const src = '[Service]\nExecStart=/usr/bin/node /main.js 168\n';
   const r = parseServiceFile(src);
-  assert.strictEqual(r.args, null);
-  assert.ok(r.error, 'expected error field');
-  assert.match(r.error, /fewer than 6/);
+  assert.ok(r.args, 'expected args object');
+  assert.strictEqual(r.args.runtimeHours, 168);
+  assert.strictEqual(r.error, undefined, 'no error for short but parseable ExecStart');
 });
 
-await test('returns {error} when ExecStart args are non-numeric', () => {
+await test('returns args=null when ExecStart has no trailing numeric token', () => {
   const src = '[Service]\nExecStart=/usr/bin/node /main.js a b c d\n';
   const r = parseServiceFile(src);
   assert.strictEqual(r.args, null);
-  assert.ok(r.error, 'expected error field');
-  assert.match(r.error, /not numeric/);
+  assert.strictEqual(r.error, undefined, 'no error: ExecStart exists, just unparseable');
 });
 
 console.log('\n== listVariants ==');
