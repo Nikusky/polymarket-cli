@@ -109,13 +109,13 @@ function readLedger(dataDir, _opts = {}) {
   for (const r of records) {
     if (r.kind === 'entry') {
       totals.entries++;
-      totals.deployed += Number(r.paperCost || 0);
+      totals.deployed += Number(r.paperCost ?? 0);
     } else if (r.kind === 'exit') {
       totals.exits++;
       if (r.won === true) totals.wins++;
       else totals.losses++;
       if (r.stoppedOut === true) totals.stopExits++;
-      totals.pnl += Number(r.pnl || 0);
+      totals.pnl += Number(r.pnl ?? 0);
     }
   }
 
@@ -123,7 +123,7 @@ function readLedger(dataDir, _opts = {}) {
   let running = 0;
   for (const r of records) {
     if (r.kind !== 'exit') continue;
-    running += Number(r.pnl || 0);
+    running += Number(r.pnl ?? 0);
     cumulativePnl.push([r.ts, Math.round(running * 100) / 100]);
   }
 

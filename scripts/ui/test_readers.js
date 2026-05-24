@@ -134,5 +134,19 @@ test('parseErrors is 0 on clean fixture', () => {
   assert.strictEqual(r.parseErrors, 0);
 });
 
+test('parseErrors counts malformed JSON lines without throwing', () => {
+  // Build a synthetic ledger with one good + one bad + one good line.
+  const tmp = path.join(require('os').tmpdir(), `polybot-ui-test-${Date.now()}`);
+  require('fs').mkdirSync(tmp, { recursive: true });
+  require('fs').writeFileSync(path.join(tmp, 'strategy-ledger.jsonl'),
+    '{"kind":"entry","ts":1,"paperCost":100}\n' +
+    'this is not json\n' +
+    '{"kind":"exit","ts":2,"won":true,"pnl":10}\n'
+  );
+  const r = readLedger(tmp);
+  assert.strictEqual(r.records.length, 2, `expected 2 good records, got ${r.records.length}`);
+  assert.strictEqual(r.parseErrors, 1, `expected 1 parseError, got ${r.parseErrors}`);
+});
+
 console.log(`\n${failed === 0 ? 'PASS' : 'FAIL'} - ${failed} failure(s)`);
 process.exit(failed === 0 ? 0 : 1);
