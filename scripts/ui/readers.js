@@ -21,15 +21,23 @@ function parseServiceFile(src) {
 
   if (!execStart) return { description, env, error: 'ExecStart missing' };
 
-  const a = execStart;
-  const args = a.length >= 6 ? {
-    observeMin: parseInt(a[a.length - 4], 10),
-    threshBps: parseFloat(a[a.length - 3]),
-    positionUsd: parseFloat(a[a.length - 2]),
-    runtimeHours: parseFloat(a[a.length - 1]),
-  } : null;
+  const tokens = execStart;
 
-  return { description, env, execStart, args };
+  if (tokens.length < 6) {
+    return { description, env, execStart: tokens, args: null, error: 'ExecStart has fewer than 6 tokens' };
+  }
+
+  const argsRaw = {
+    observeMin: parseInt(tokens[tokens.length - 4], 10),
+    threshBps: parseFloat(tokens[tokens.length - 3]),
+    positionUsd: parseFloat(tokens[tokens.length - 2]),
+    runtimeHours: parseFloat(tokens[tokens.length - 1]),
+  };
+  if (!Object.values(argsRaw).every(Number.isFinite)) {
+    return { description, env, execStart: tokens, args: null, error: 'ExecStart args not numeric' };
+  }
+
+  return { description, env, execStart: tokens, args: argsRaw };
 }
 
 module.exports = { parseServiceFile };

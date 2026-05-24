@@ -33,5 +33,21 @@ test('returns {error} when ExecStart missing', () => {
   assert.match(r.error, /ExecStart/);
 });
 
+test('returns {error} when ExecStart has fewer than 6 tokens', () => {
+  const src = '[Service]\nExecStart=/usr/bin/node /main.js\n';
+  const r = parseServiceFile(src);
+  assert.strictEqual(r.args, null);
+  assert.ok(r.error, 'expected error field');
+  assert.match(r.error, /fewer than 6/);
+});
+
+test('returns {error} when ExecStart args are non-numeric', () => {
+  const src = '[Service]\nExecStart=/usr/bin/node /main.js a b c d\n';
+  const r = parseServiceFile(src);
+  assert.strictEqual(r.args, null);
+  assert.ok(r.error, 'expected error field');
+  assert.match(r.error, /not numeric/);
+});
+
 console.log(`\n${failed === 0 ? 'PASS' : 'FAIL'} - ${failed} failure(s)`);
 process.exit(failed === 0 ? 0 : 1);
