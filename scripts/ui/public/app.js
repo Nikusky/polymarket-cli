@@ -106,7 +106,15 @@
       type: 'line',
       data: { datasets },
       options: {
-        scales: { x: { type: 'time', time: { unit: 'hour' } } },
+        scales: {
+          x: { type: 'time', time: { unit: 'hour' } },
+          y: {
+            grid: {
+              color: (ctx) => ctx.tick.value === 0 ? '#e6edf3' : 'rgba(230,237,243,0.08)',
+              lineWidth: (ctx) => ctx.tick.value === 0 ? 2 : 1,
+            },
+          },
+        },
         plugins: { legend: { labels: { color: '#e6edf3' } } },
       },
     });
