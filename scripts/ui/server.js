@@ -48,6 +48,29 @@ async function handle(req, res) {
   const url = new URL(req.url, 'http://x');
   const p = url.pathname;
   try {
+    if (p === '/' || p === '/index.html') {
+      const buf = fs.readFileSync(path.join(__dirname, 'public', 'index.html'));
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'content-length': buf.length });
+      return res.end(buf);
+    }
+    if (p.startsWith('/static/')) {
+      const staticMatch = p.match(/^\/static\/([A-Za-z0-9._-]+)$/);
+      if (!staticMatch) return json(res, 400, { error: 'invalid path' });
+      const name = staticMatch[1];
+      const file = path.join(__dirname, 'public', name);
+      const publicDir = path.join(__dirname, 'public');
+      if (!file.startsWith(publicDir + path.sep) && file !== publicDir) {
+        return json(res, 400, { error: 'invalid path' });
+      }
+      let buf;
+      try { buf = fs.readFileSync(file); } catch { return json(res, 404, { error: 'not found' }); }
+      const ct = name.endsWith('.css') ? 'text/css' :
+                 name.endsWith('.js')  ? 'application/javascript' :
+                 name.endsWith('.html') ? 'text/html; charset=utf-8' :
+                 'application/octet-stream';
+      res.writeHead(200, { 'content-type': ct, 'content-length': buf.length });
+      return res.end(buf);
+    }
     const logsMatch = p.match(/^\/api\/logs\/([^/]+)$/);
     if (logsMatch) {
       const label = decodeURIComponent(logsMatch[1]);

@@ -119,6 +119,27 @@ function startServer() {
     assert.strictEqual(r.status, 400);
   });
 
+  console.log('\n== server: static files ==');
+
+  await test('GET / returns index.html', async () => {
+    const r = await fetch(srv.url + '/');
+    assert.strictEqual(r.status, 200);
+    assert.ok((r.headers.get('content-type') || '').includes('html'));
+    const body = await r.text();
+    assert.ok(body.includes('<div id="root">'));
+  });
+
+  await test('GET /static/styles.css returns css', async () => {
+    const r = await fetch(srv.url + '/static/styles.css');
+    assert.strictEqual(r.status, 200);
+    assert.ok((r.headers.get('content-type') || '').includes('css'));
+  });
+
+  await test('GET /static/../etc/passwd is rejected', async () => {
+    const r = await fetch(srv.url + '/static/' + encodeURIComponent('../../../etc/passwd'));
+    assert.strictEqual(r.status, 400);
+  });
+
   if (srv) srv.proc.kill();
   console.log(`\n${failed === 0 ? 'PASS' : 'FAIL'} - ${failed} failure(s)`);
   process.exit(failed === 0 ? 0 : 1);
