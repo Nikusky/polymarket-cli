@@ -1,8 +1,23 @@
 # Sprint 6 — Market-Maker Paper Bot (Design)
 
 **Date:** 2026-05-23
-**Status:** draft, awaiting approval before implementation
+**Status:** scoped down on review — SELL-side mirror shipped first (Sprint 6.1); full bid-ladder MM deferred to Sprint 7.
 **Prereqs:** Phase 3 directional bots (D/G/H) deployed and evaluated; mastercopy paper backfilled (2026-05-22)
+
+---
+
+## 0. Update (2026-05-23, post-review) — what actually shipped
+
+The original section 2 math below describes a **two-sided maker quoting at $0.49 / $0.53 and holding to settlement**. On second pass, that model is mathematically equivalent to what the BUY-side mastercopy already paper-tested: mirroring cE25's BUYs (at avg fill $0.49) and holding to settlement gave **−2.57% ROI over 3,897 trades**. The "+2% spread capture" intuition in section 2 only works for an MM who **cycles inventory** (cancels and resells before settlement) — not one who holds. A naive bid-ladder + hold-to-settlement implementation would re-discover the same −2.57% loss with more code.
+
+Cheaper higher-signal experiment shipped instead (commit `730b13b`): **paper-mirror cE25's SELLs**. If cE25's overall PnL is positive (per leaderboard) but their BUY flow alone loses −2.57%, then their SELL flow must earn meaningfully more than +2.57% to net out positive. Mirroring SELLs directly tests this — same architecture as `scripts/mastercopy/`, same masters, opposite side filter via a new `MIRROR_SIDES=SELL` env var.
+
+What this validates / invalidates:
+- **+3% to +5% net realized on SELL-side mirror over 24-48h** → "the masters profit from SELL flow" hypothesis confirmed. Justifies Sprint 7 (full two-sided MM with inventory cycling) as the right next step.
+- **~0% to −3% net** → SELL flow alone isn't the answer either; the masters' profit must come from inventory cycling, not from holding either side. Sprint 7 still warranted but with skepticism.
+- **Worse than −5%** → leaderboard PnL data is unreliable, or there's a different mechanic we haven't identified. Pause and re-investigate before building anything.
+
+The architecture sections below (3–8) describe the **deferred** full bid-ladder MM. Keep for reference when Sprint 7 lands — the counterfactual fill simulator and queue-priority calibration concerns still apply once we add inventory cycling on top.
 
 ---
 
