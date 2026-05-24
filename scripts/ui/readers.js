@@ -137,4 +137,23 @@ function emptyTotals() {
   return { entries: 0, exits: 0, wins: 0, losses: 0, stopExits: 0, pnl: 0, deployed: 0 };
 }
 
-module.exports = { parseServiceFile, listVariants, readLedger };
+function readState(dataDir) {
+  const statePath = path.join(dataDir, 'strategy-state.json');
+  let raw;
+  try { raw = fs.readFileSync(statePath, 'utf8'); }
+  catch { return { positions: [], decisionCounts: {} }; }
+
+  let st;
+  try { st = JSON.parse(raw); }
+  catch { return { positions: [], decisionCounts: {}, error: 'state parse failed' }; }
+
+  const positions = Object.values(st.positions || {}).filter(p => !p.settled);
+  const decisionCounts = {};
+  for (const d of Object.values(st.decisions || {})) {
+    const r = d.reason || 'unknown';
+    decisionCounts[r] = (decisionCounts[r] || 0) + 1;
+  }
+  return { positions, decisionCounts };
+}
+
+module.exports = { parseServiceFile, listVariants, readLedger, readState };

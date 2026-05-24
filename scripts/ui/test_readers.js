@@ -148,5 +148,27 @@ test('parseErrors counts malformed JSON lines without throwing', () => {
   assert.strictEqual(r.parseErrors, 1, `expected 1 parseError, got ${r.parseErrors}`);
 });
 
+const { readState } = require('./readers');
+
+console.log('\n== readState ==');
+
+test('filters to open positions only', () => {
+  const s = readState(path.join(FIX, 'scripts/strategy/data-d'));
+  assert.strictEqual(s.positions.length, 1);
+  assert.strictEqual(s.positions[0].slug, 'btc-updown-15m-1779999000');
+});
+
+test('aggregates decision counts by reason', () => {
+  const s = readState(path.join(FIX, 'scripts/strategy/data-d'));
+  assert.strictEqual(s.decisionCounts.below_threshold, 1);
+  assert.strictEqual(s.decisionCounts.entered, 1);
+});
+
+test('returns empty shape when missing', () => {
+  const s = readState(path.join(FIX, 'scripts/strategy/does-not-exist'));
+  assert.deepStrictEqual(s.positions, []);
+  assert.deepStrictEqual(s.decisionCounts, {});
+});
+
 console.log(`\n${failed === 0 ? 'PASS' : 'FAIL'} - ${failed} failure(s)`);
 process.exit(failed === 0 ? 0 : 1);

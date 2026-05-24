@@ -1,0 +1,26 @@
+{
+  "decisions": {
+    "btc-updown-15m-1779000000": { "reason": "entered" },
+    "btc-updown-15m-1779001800": { "reason": "below_threshold" }
+  },
+  "positions": {
+    "btc-updown-15m-1779999000": {
+      "slug": "btc-updown-15m-1779999000",
+      "openTs": 1779999000,
+      "resolveTs": 1779999900,
+      "betSide": "Up",
+      "avgFillPrice": 0.88,
+      "paperShares": 113.64,
+      "paperCost": 100,
+      "observeBps": 9.0,
+      "settled": false
+    },
+    "btc-updown-15m-1779000000": {
+      "slug": "btc-updown-15m-1779000000",
+      "betSide": "Up",
+      "settled": true,
+      "actualWinner": "Up",
+      "realizedPnl": 16.28
+    }
+  }
+}
