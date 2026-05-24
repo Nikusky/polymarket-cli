@@ -10,6 +10,14 @@ All commands assume you have first SSH'd into the server unless explicitly marke
 ssh -i C:\Users\nicol\MY_CLAUDE_DATA\auto_tradeBot\autoTradeBot_key.pem ubuntu@44.217.72.62
 ```
 
+## Browser dashboard (UI)
+
+```bash
+ssh -i C:\Users\nicol\MY_CLAUDE_DATA\auto_tradeBot\autoTradeBot_key.pem \
+    -L 8080:127.0.0.1:8080 ubuntu@44.217.72.62
+# then open http://localhost:8080 in a browser on the laptop
+```
+
 ## Current live daemons (2026-05-24)
 
 | Service | Role | Data dir |
@@ -18,6 +26,7 @@ ssh -i C:\Users\nicol\MY_CLAUDE_DATA\auto_tradeBot\autoTradeBot_key.pem ubuntu@4
 | `polybot-strategy-h` | ETH 15m directional | `scripts/strategy/data-h/` |
 | `polybot-mastercopy` | Paper BUY mirror of cE25 / b55fa / Truthful-Firewall | `scripts/mastercopy/data-mc/` |
 | `polybot-snapshot` | Orderbook capture | `scripts/research/data/` |
+| `polybot-ui` | Read-only browser dashboard on 127.0.0.1:8080 via SSH tunnel | — |
 
 Retired (`inactive / disabled`):
 - `polybot-strategy-g` — BTC 5m, bled −$754, stopped 2026-05-24
@@ -26,7 +35,7 @@ Retired (`inactive / disabled`):
 ## Service health (one-liner)
 
 ```bash
-for s in polybot-strategy-d polybot-strategy-g polybot-strategy-h polybot-mastercopy polybot-mastercopy-sells polybot-snapshot; do
+for s in polybot-strategy-d polybot-strategy-g polybot-strategy-h polybot-mastercopy polybot-mastercopy-sells polybot-snapshot polybot-ui; do
   echo "$s: $(systemctl is-active $s) / $(systemctl is-enabled $s)"
 done
 ```

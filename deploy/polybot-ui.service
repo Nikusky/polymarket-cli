@@ -1,0 +1,26 @@
+[Unit]
+Description=polyBOT UI - read-only dashboard server on 127.0.0.1:8080
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=polybot
+Group=polybot
+WorkingDirectory=/opt/polybot/polymarket-cli
+Environment=POLYBOT_UI_ROOT=/opt/polybot/polymarket-cli
+Environment=POLYBOT_UI_PORT=8080
+Environment=POLYBOT_UI_HOST=127.0.0.1
+ExecStart=/usr/bin/node /opt/polybot/polymarket-cli/scripts/ui/server.js
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=polybot-ui
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target
