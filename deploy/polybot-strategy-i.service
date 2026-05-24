@@ -1,0 +1,27 @@
+[Unit]
+Description=polyBOT strategy paper bot — variant I (obs-9, thr-6, fill<=0.85, blackout 13/17/22 UTC). BTC 15m fill-tightened + earlier-observe test vs D.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=polybot
+Group=polybot
+WorkingDirectory=/opt/polybot/polymarket-cli
+Environment=STRATEGY_DATA_DIR=/opt/polybot/polymarket-cli/scripts/strategy/data-i
+Environment=MAX_FILL_PRICE=0.85
+Environment=STRATEGY_BLACKOUT_HOURS=13,17,22
+ExecStart=/usr/bin/node /opt/polybot/polymarket-cli/scripts/strategy/main.js 9 6 100 168
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=polybot-strategy-i
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/opt/polybot/polymarket-cli/scripts/strategy/data-i
+
+[Install]
+WantedBy=multi-user.target
