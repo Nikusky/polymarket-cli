@@ -1,0 +1,26 @@
+[Unit]
+Description=polyBOT strategy paper bot — variant J (obs-11, thr-6, fill<=0.92, NO blackout). Tests whether blackout hours 13/17/22 actually save money — A/B vs D.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=polybot
+Group=polybot
+WorkingDirectory=/opt/polybot/polymarket-cli
+Environment=STRATEGY_DATA_DIR=/opt/polybot/polymarket-cli/scripts/strategy/data-j
+Environment=MAX_FILL_PRICE=0.92
+ExecStart=/usr/bin/node /opt/polybot/polymarket-cli/scripts/strategy/main.js 11 6 100 168
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=polybot-strategy-j
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/opt/polybot/polymarket-cli/scripts/strategy/data-j
+
+[Install]
+WantedBy=multi-user.target
