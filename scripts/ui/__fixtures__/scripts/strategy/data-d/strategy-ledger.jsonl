@@ -1,0 +1,12 @@
+{"kind":"entry","ts":1779000000,"slug":"btc-updown-15m-1779000000","betSide":"Up","avgFillPrice":0.86,"paperShares":116.28,"paperCost":100,"observeBps":8.2}
+{"kind":"exit","ts":1779000900,"slug":"btc-updown-15m-1779000000","betSide":"Up","won":true,"winner":"Up","pnl":16.28,"avgFillPrice":0.86,"paperShares":116.28,"paperCost":100,"observeBps":8.2}
+{"kind":"entry","ts":1779001000,"slug":"btc-updown-15m-1779000900","betSide":"Down","avgFillPrice":0.90,"paperShares":111.11,"paperCost":100,"observeBps":-7.0}
+{"kind":"exit","ts":1779001900,"slug":"btc-updown-15m-1779000900","betSide":"Down","won":true,"winner":"Down","pnl":11.11,"avgFillPrice":0.90,"paperShares":111.11,"paperCost":100,"observeBps":-7.0}
+{"kind":"skip","ts":1779002000,"slug":"btc-updown-15m-1779001800","reason":"below_threshold","retBps":2.1}
+{"kind":"entry","ts":1779003000,"slug":"btc-updown-15m-1779002700","betSide":"Up","avgFillPrice":0.88,"paperShares":113.64,"paperCost":100,"observeBps":9.5}
+{"kind":"exit","ts":1779003900,"slug":"btc-updown-15m-1779002700","betSide":"Up","won":false,"winner":"Down","pnl":-100,"avgFillPrice":0.88,"paperShares":113.64,"paperCost":100,"observeBps":9.5}
+{"kind":"skip","ts":1779004000,"slug":"btc-updown-15m-1779003600","reason":"fill_too_high","avgPrice":0.95}
+{"kind":"entry","ts":1779005000,"slug":"btc-updown-15m-1779004500","betSide":"Up","avgFillPrice":0.85,"paperShares":117.65,"paperCost":100,"observeBps":7.0}
+{"kind":"exit","ts":1779005900,"slug":"btc-updown-15m-1779004500","betSide":"Up","won":false,"winner":"stopped","stoppedOut":true,"pnl":-58,"avgFillPrice":0.85,"paperShares":117.65,"paperCost":100,"observeBps":7.0,"stopExitPrice":0.35,"entryRetBps":7.0,"stopRetBps":-4.0}
+{"kind":"entry","ts":1779006000,"slug":"btc-updown-15m-1779005400","betSide":"Down","avgFillPrice":0.87,"paperShares":114.94,"paperCost":100,"observeBps":-8.0}
+{"kind":"exit","ts":1779006900,"slug":"btc-updown-15m-1779005400","betSide":"Down","won":true,"winner":"Down","pnl":14.94,"avgFillPrice":0.87,"paperShares":114.94,"paperCost":100,"observeBps":-8.0}
