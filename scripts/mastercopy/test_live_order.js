@@ -77,6 +77,12 @@ async function nextBtcUpdownMarket() {
   console.log(`        market: ${slug}`);
   console.log(`        upTokenId: ${upTokenId.slice(0, 24)}...`);
 
+  // Query the market's tick size — different markets use different scales
+  // (btc-updown-15m is on 0.01, some others are 0.001). Hardcoding causes
+  // `invalid tick size` rejections; ask the CLOB directly.
+  const tickSize = await client.getTickSize(upTokenId);
+  console.log(`        tickSize: ${tickSize}`);
+
   // The size field is shares for limit orders, not USDC. At $0.55 limit, $1 = 1.82 shares.
   const sizeShares = Math.round((SIZE_USD / LIMIT_PRICE) * 100) / 100;
   console.log(`  [4/4] placing FAK BUY @ $${LIMIT_PRICE} × ${sizeShares} shares (~$${SIZE_USD})...`);
@@ -84,7 +90,7 @@ async function nextBtcUpdownMarket() {
   try {
     const resp = await client.createAndPostOrder(
       { tokenID: upTokenId, price: LIMIT_PRICE, side: Side.BUY, size: sizeShares },
-      { tickSize: '0.001' },
+      { tickSize },
       OrderType.FAK,
     );
     console.log();
