@@ -68,14 +68,15 @@ function listVariants(deployDir) {
     // Discovers polyBOT variant units. The legacy `polybot-strategy.service` (no
     // letter suffix) is intentionally excluded — it predates the A/B/C/.../K split
     // and is now dead config; will be removed in a future cleanup.
-    const m = name.match(/^polybot-(strategy-([a-z]+)|mastercopy(-sells)?)\.service$/);
+    const m = name.match(/^polybot-(strategy-([a-z]+)|mastercopy(-sells|-live)?)\.service$/);
     if (!m) continue;
 
     let label;
     const service = name.replace('.service', '');
-    if (m[2]) label = m[2];                              // strategy-d -> d
-    else if (m[3]) label = 'mc-sells';                   // mastercopy-sells -> mc-sells
-    else label = 'mastercopy';                           // mastercopy alone -> mastercopy
+    if (m[2])              label = m[2];                 // strategy-d -> d
+    else if (m[3] === '-sells') label = 'mc-sells';      // mastercopy-sells -> mc-sells
+    else if (m[3] === '-live')  label = 'mc-live';       // mastercopy-live  -> mc-live
+    else                   label = 'mastercopy';         // mastercopy alone -> mastercopy
 
     const src = fs.readFileSync(path.join(deployDir, name), 'utf8');
     const parsed = parseServiceFile(src);

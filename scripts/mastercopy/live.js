@@ -37,8 +37,12 @@ const { decideFill, checkRiskGates, rollingPnl, bestAskFromBook } = require('./l
 const DATA_DIR = process.env.STRATEGY_DATA_DIR
   ? path.resolve(process.env.STRATEGY_DATA_DIR)
   : path.join(__dirname, 'data-mc-live');
-const LEDGER = path.join(DATA_DIR, 'live-ledger.jsonl');
-const STATE  = path.join(DATA_DIR, 'live-state.json');
+// Use the same filenames as the paper bot (strategy-ledger/strategy-state) so
+// the UI's readers (which expects these canonical names) picks up live data.
+// The "live" vs "paper" distinction is captured by the data directory name
+// (data-mc-live vs data-mc), not the file name.
+const LEDGER = path.join(DATA_DIR, 'strategy-ledger.jsonl');
+const STATE  = path.join(DATA_DIR, 'strategy-state.json');
 const KILL   = path.join(DATA_DIR, 'bot-killed');
 
 const MASTERS = (process.env.MASTER_ADDRESSES || '0xce25e214d5cfe4f459cf67f08df581885aae7fdc,0xb55fa1296e6ec55d0ce53d93b9237389f11764d4,0xa9239c0ca3dee2d03232481212474e1d781b6704')
