@@ -9,6 +9,18 @@
   let chart = null;
   let consecutiveFails = 0;
 
+  // Persisted set of legend labels the user has hidden on the overview chart.
+  // Survives the 15s polling rebuild AND full page reloads.
+  const HIDDEN_KEY = 'polybot.ui.hiddenLabels';
+  function loadHidden() {
+    try { return new Set(JSON.parse(localStorage.getItem(HIDDEN_KEY) || '[]')); }
+    catch { return new Set(); }
+  }
+  function saveHidden(set) {
+    try { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...set])); } catch {}
+  }
+  let hiddenLabels = loadHidden();
+
   async function fetchAndRender() {
     const route = R.parseHash(window.location.hash);
     try {
@@ -100,6 +112,8 @@
         borderWidth: 1.5,
         fill: false,
         tension: 0.1,
+        // Pre-apply the user's persisted choice so the dataset starts hidden.
+        hidden: hiddenLabels.has(v.label.toUpperCase()),
       }));
     if (chart) chart.destroy();
     chart = new window.Chart(ctx, {
@@ -115,7 +129,28 @@
             },
           },
         },
-        plugins: { legend: { labels: { color: '#e6edf3' } } },
+        plugins: {
+          legend: {
+            labels: { color: '#e6edf3' },
+            // Toggle dataset + persist the choice. Mirrors Chart.js default
+            // behaviour and additionally writes the resulting set to localStorage
+            // so the next 15s poll (which destroys & recreates the chart) and
+            // any future page load can restore it.
+            onClick: (e, legendItem, legend) => {
+              const ci = legend.chart;
+              const idx = legendItem.datasetIndex;
+              const meta = ci.getDatasetMeta(idx);
+              meta.hidden = meta.hidden === null ? !ci.data.datasets[idx].hidden : null;
+              const label = legendItem.text;
+              const isHiddenNow = meta.hidden === true ||
+                (meta.hidden === null && ci.data.datasets[idx].hidden === true);
+              if (isHiddenNow) hiddenLabels.add(label);
+              else hiddenLabels.delete(label);
+              saveHidden(hiddenLabels);
+              ci.update();
+            },
+          },
+        },
       },
     });
   }
@@ -125,6 +160,8 @@
     const ledger = payload.ledger || [];
     const positions = payload.positions || [];
     document.getElementById('root').innerHTML =
+      `<h3 style="margin:0 0 8px">${(v.label || '').toUpperCase()} - cumulative PnL</h3>` +
+      `<canvas id="chart" height="140"></canvas>` +
       R.buildVariantSpec({ ...v, totals: payload.totals }) +
       R.buildPositionsTable(positions) +
       `<div class="toolbar">` +
@@ -142,6 +179,40 @@
       `<div id="ledger">${R.buildLedgerTable(ledger, 'all')}</div>`;
     document.getElementById('filter').addEventListener('change', e => {
       document.getElementById('ledger').innerHTML = R.buildLedgerTable(ledger, e.target.value);
+    });
+    drawVariantChart(v.label);
+  }
+
+  function drawVariantChart(label) {
+    const ctx = document.getElementById('chart');
+    if (!ctx || !window.Chart || !state) return;
+    const v = (state.variants || []).find(x => x.label === label);
+    const series = v && v.cumulativePnl ? v.cumulativePnl : [];
+    const data = series.map(([t, p]) => ({ x: t * 1000, y: p }));
+    if (chart) chart.destroy();
+    chart = new window.Chart(ctx, {
+      type: 'line',
+      data: {
+        datasets: [{
+          label: (label || '').toUpperCase(),
+          data,
+          borderWidth: 1.5,
+          fill: false,
+          tension: 0.1,
+        }],
+      },
+      options: {
+        scales: {
+          x: { type: 'time', time: { unit: 'hour' } },
+          y: {
+            grid: {
+              color: (c) => c.tick.value === 0 ? '#e6edf3' : 'rgba(230,237,243,0.08)',
+              lineWidth: (c) => c.tick.value === 0 ? 2 : 1,
+            },
+          },
+        },
+        plugins: { legend: { display: false } },
+      },
     });
   }
 
