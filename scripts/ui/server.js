@@ -58,6 +58,7 @@ function buildStateAggregate() {
     out.push({
       label: v.label,
       service: v.service,
+      mode: v.mode || 'paper',
       description: v.description,
       env: v.env,
       args: v.args,

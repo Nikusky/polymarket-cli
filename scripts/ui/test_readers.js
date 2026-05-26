@@ -1,6 +1,6 @@
 const assert = require('assert');
 const path = require('path');
-const { parseServiceFile, listVariants, readLedger, readState, readJournal, parseJournalOutput } = require('./readers');
+const { parseServiceFile, listVariants, classifyMode, readLedger, readState, readJournal, parseJournalOutput } = require('./readers');
 
 let failed = 0;
 async function test(name, fn) {
@@ -103,6 +103,47 @@ await test('mastercopy-scaled variant gets label mc-scaled with SCALED env', () 
   assert.strictEqual(mcSc.dataDir, 'scripts/mastercopy/data-mc-scaled');
   assert.strictEqual(mcSc.env.MIRROR_MODE, 'SCALED');
   assert.strictEqual(mcSc.env.MIRROR_SIDES, 'BUY,SELL');
+});
+
+await test('every fixture variant is classified mode=paper', () => {
+  const v = listVariants(path.join(FIX, 'deploy'));
+  for (const variant of v) {
+    assert.strictEqual(variant.mode, 'paper', `${variant.label}: expected paper, got ${variant.mode}`);
+  }
+});
+
+console.log('\n== classifyMode ==');
+
+await test('live.js in ExecStart -> live', () => {
+  const parsed = { execStart: ['/usr/bin/node', '/opt/polybot/polymarket-cli/scripts/mastercopy/live.js', '168'] };
+  assert.strictEqual(classifyMode(parsed, 'polybot-strategy-d'), 'live');
+});
+
+await test('-live service-name suffix -> live (with or without .service)', () => {
+  const parsed = { execStart: ['/usr/bin/node', '/opt/polybot/scripts/strategy/main.js'] };
+  assert.strictEqual(classifyMode(parsed, 'polybot-mastercopy-live'), 'live');
+  assert.strictEqual(classifyMode(parsed, 'polybot-mastercopy-live.service'), 'live');
+});
+
+await test('paper unit running main.js -> paper', () => {
+  const parsed = { execStart: ['/usr/bin/node', '/opt/polybot/scripts/strategy/main.js', '11', '6', '100', '168'] };
+  assert.strictEqual(classifyMode(parsed, 'polybot-strategy-d'), 'paper');
+});
+
+await test('null/empty inputs default to paper', () => {
+  assert.strictEqual(classifyMode(null, 'polybot-strategy-d'), 'paper');
+  assert.strictEqual(classifyMode({}, ''), 'paper');
+  assert.strictEqual(classifyMode({ execStart: [] }, 'foo'), 'paper');
+});
+
+await test('a path with "live" only in a folder name does NOT trigger live (script must end in live*.js)', () => {
+  const parsed = { execStart: ['/usr/bin/node', '/opt/live-data/main.js'] };
+  assert.strictEqual(classifyMode(parsed, 'polybot-strategy-d'), 'paper');
+});
+
+await test('live-something.js variants (e.g. live-lib.js) are classified live', () => {
+  const parsed = { execStart: ['/usr/bin/node', '/opt/polybot/scripts/mastercopy/live-runner.js'] };
+  assert.strictEqual(classifyMode(parsed, 'polybot-strategy-d'), 'live');
 });
 
 console.log('\n== readLedger ==');

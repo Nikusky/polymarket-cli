@@ -221,5 +221,48 @@ test('buildRangeLabel formats timestamp as "since YYYY-MM-DD HH:MMZ"', () => {
   assert.strictEqual(render.buildRangeLabel(ts), 'since 2026-05-25 14:00Z');
 });
 
+console.log('\n== render.buildOverviewSection ==');
+const sampleVariants = [
+  { label: 'mc-live', mode: 'live', totals: { exits: 4, wins: 2, losses: 2, pnl: -0.24, deployed: 12 }, openCount: 1, description: 'real money' },
+  { label: 'd',       mode: 'paper', totals: { exits: 12, wins: 8, losses: 4, pnl: 86.82, deployed: 24 }, openCount: 0, description: 'paper d' },
+];
+test('empty variants list returns empty string (no header)', () => {
+  assert.strictEqual(render.buildOverviewSection('Live (real money)', []), '');
+  assert.strictEqual(render.buildOverviewSection('Live (real money)', null), '');
+});
+test('builds a section with title, optional note, and overview table', () => {
+  const html = render.buildOverviewSection('Live (real money)', [sampleVariants[0]], { note: 'on-chain CLOB orders', cls: 'live' });
+  assert.ok(html.includes('class="overview-section live"'), html);
+  assert.ok(html.includes('Live (real money)'), html);
+  assert.ok(html.includes('section-note'), html);
+  assert.ok(html.includes('on-chain CLOB orders'), html);
+  assert.ok(html.includes('MC-LIVE'), html);
+  assert.ok(!html.includes('>D<'), 'paper variant should not leak in: ' + html);
+});
+test('paper section does not include live variant', () => {
+  const html = render.buildOverviewSection('Paper', [sampleVariants[1]], { cls: 'paper' });
+  assert.ok(html.includes('overview-section paper'), html);
+  assert.ok(html.includes('>D '), html);
+  assert.ok(!html.includes('MC-LIVE'), html);
+});
+
+console.log('\n== render.buildVariantSpec mode badge ==');
+test('live variant gets a LIVE badge', () => {
+  const html = render.buildVariantSpec({ label: 'mc-live', mode: 'live', service: 'polybot-mastercopy-live', env: {}, args: {} });
+  assert.ok(html.includes('badge mode-live'), html);
+  assert.ok(html.includes('LIVE'), html);
+  assert.ok(!html.includes('mode-paper'), html);
+});
+test('paper variant gets a PAPER badge', () => {
+  const html = render.buildVariantSpec({ label: 'd', mode: 'paper', service: 'polybot-strategy-d', env: {}, args: {} });
+  assert.ok(html.includes('badge mode-paper'), html);
+  assert.ok(html.includes('PAPER'), html);
+  assert.ok(!html.includes('mode-live'), html);
+});
+test('missing mode defaults to PAPER badge', () => {
+  const html = render.buildVariantSpec({ label: 'd', service: 'polybot-strategy-d', env: {}, args: {} });
+  assert.ok(html.includes('badge mode-paper'), html);
+});
+
 console.log(`\n${failed === 0 ? 'PASS' : 'FAIL'} - ${failed} failure(s)`);
 process.exit(failed === 0 ? 0 : 1);

@@ -129,27 +129,34 @@
   }
 
   function renderSidebar(state, route) {
-    const labels = (state.variants || []).map(v => v.label);
+    const variants = state.variants || [];
+    const live = variants.filter(v => v.mode === 'live');
+    const paper = variants.filter(v => v.mode !== 'live');
     const a = (href, text, active) =>
       `<a href="${href}" ${active ? 'class="active"' : ''}>${text}</a>`;
+    const group = (label, items) => items.length
+      ? `<div class="group">${label}</div>` + items.map(v => a(`#/variant/${v.label}`, v.label.toUpperCase(),
+          route.view === 'variant' && route.label === v.label)).join('')
+      : '';
+    const firstLabel = (variants[0] && variants[0].label) || 'd';
     document.getElementById('sidebar').innerHTML =
       a('#/', 'Overview', route.view === 'overview') +
-      `<div class="group">Variants</div>` +
-      labels.map(l => a(`#/variant/${l}`, l.toUpperCase(),
-        route.view === 'variant' && route.label === l)).join('') +
+      group('Live', live) +
+      group('Paper', paper) +
       `<div class="group">Other</div>` +
-      a(`#/logs/${labels[0] || 'd'}`, 'Logs',
-        route.view === 'logs');
+      a(`#/logs/${firstLabel}`, 'Logs', route.view === 'logs');
   }
 
   function renderOverview(state) {
-    const rows = (state.variants || []).map(R.buildOverviewRow).join('');
+    const variants = state.variants || [];
+    const live = variants.filter(v => v.mode === 'live');
+    const paper = variants.filter(v => v.mode !== 'live');
     document.getElementById('root').innerHTML =
       `<h2>Overview</h2>` +
-      `<p class="muted">Generated ${new Date(state.generatedAt * 1000).toISOString()} | ${state.variants.length} variants</p>` +
+      `<p class="muted">Generated ${new Date(state.generatedAt * 1000).toISOString()} | ${variants.length} variants (${live.length} live, ${paper.length} paper)</p>` +
       R.buildRangePicker(sinceSpec) +
-      `<table><thead><tr><th>Variant</th><th>Exits</th><th>WR</th><th>PnL</th><th>Deployed</th><th>Open</th><th>Description</th></tr></thead>` +
-      `<tbody>${rows}</tbody></table>` +
+      R.buildOverviewSection('Live (real money)', live, { cls: 'live', note: 'on-chain CLOB orders' }) +
+      R.buildOverviewSection('Paper', paper, { cls: 'paper', note: 'simulated fills' }) +
       `<h3 style="margin-top:24px">Cumulative PnL</h3>` +
       `<canvas id="chart" height="120"></canvas>`;
     bindRangePicker(document.querySelector('[data-role="range"]'));

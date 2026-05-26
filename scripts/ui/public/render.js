@@ -25,6 +25,21 @@
     return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
   }
 
+  // Renders a labelled overview section (Live or Paper) wrapping the standard
+  // overview table. Returns '' when `variants` is empty so the caller can
+  // simply concat both sections without an empty-section check.
+  function buildOverviewSection(title, variants, opts) {
+    if (!variants || variants.length === 0) return '';
+    const note = opts && opts.note ? `<span class="muted section-note">${escapeHtml(opts.note)}</span>` : '';
+    const cls = opts && opts.cls ? ` ${opts.cls}` : '';
+    const rows = variants.map(buildOverviewRow).join('');
+    return `<section class="overview-section${cls}">` +
+      `<h3 class="section-title">${escapeHtml(title)} ${note}</h3>` +
+      `<table><thead><tr><th>Variant</th><th>Exits</th><th>WR</th><th>PnL</th><th>Deployed</th><th>Open</th><th>Description</th></tr></thead>` +
+      `<tbody>${rows}</tbody></table>` +
+      `</section>`;
+  }
+
   function buildOverviewRow(v) {
     const t = v.totals || {};
     const wr = t.exits > 0 ? `${(t.wins / t.exits * 100).toFixed(1)}%` : '-';
@@ -45,8 +60,11 @@
     const envRows = Object.entries(v.env || {}).map(([k, val]) =>
       `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(val)}</dd>`).join('');
     const args = v.args || {};
+    const modeBadge = v.mode === 'live'
+      ? `<span class="badge mode-live" title="real-money on-chain orders">LIVE</span>`
+      : `<span class="badge mode-paper" title="simulated fills">PAPER</span>`;
     return `<section class="spec">` +
-      `<h3>${escapeHtml((v.label || '').toUpperCase())} - ${escapeHtml(v.service || '')}</h3>` +
+      `<h3>${escapeHtml((v.label || '').toUpperCase())} ${modeBadge} - ${escapeHtml(v.service || '')}</h3>` +
       `<p class="muted">${escapeHtml(v.description || '')}</p>` +
       `<dl>` +
       `<dt>observeMin</dt><dd>${args.observeMin ?? '?'}</dd>` +
@@ -216,7 +234,7 @@
 
   return {
     parseHash, formatPnl, escapeHtml,
-    buildOverviewRow, buildVariantSpec, buildLedgerTable, buildPositionsTable, buildLogsList,
+    buildOverviewRow, buildOverviewSection, buildVariantSpec, buildLedgerTable, buildPositionsTable, buildLogsList,
     resolveSince, windowTotals, buildRangePicker, buildRangeLabel,
   };
 }));

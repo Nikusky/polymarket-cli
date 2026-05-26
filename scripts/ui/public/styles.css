@@ -52,5 +52,15 @@ th { color: var(--muted); font-weight: normal; font-size: 11px; text-transform: 
 .range-picker .range-btn.active { background: rgba(88,166,255,0.18); border-color: var(--accent); color: var(--fg); }
 .range-picker .range-label { margin-left: 8px; font-size: 12px; }
 
+.overview-section { margin-top: 16px; }
+.overview-section + .overview-section { margin-top: 24px; }
+.section-title { margin: 12px 0 6px; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+.section-title .section-note { font-size: 11px; font-weight: normal; text-transform: none; letter-spacing: 0; margin-left: 8px; }
+.overview-section.live .section-title { color: var(--accent); border-bottom-color: var(--accent); }
+.overview-section.paper .section-title { color: var(--muted); }
+
+.badge.mode-live  { background: rgba(248,81,73,0.15); color: var(--neg); font-weight: 600; }
+.badge.mode-paper { background: rgba(139,148,158,0.15); color: var(--muted); }
+
 .banner { background: var(--neg); color: white; padding: 6px 16px; text-align: center; font-weight: bold; }
 .empty { padding: 40px; text-align: center; color: var(--muted); }

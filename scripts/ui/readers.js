@@ -57,6 +57,18 @@ function parseServiceFile(src) {
   return { description, env, execStart: tokens, args: null };
 }
 
+// Marks a variant as real-money 'live' vs paper. Two independent signals: a
+// `live.js`/`live-*.js` script in ExecStart (the executor itself) and a
+// `-live.service` unit-name suffix (the deploy convention). Either is enough.
+function classifyMode(parsed, serviceName) {
+  if (parsed && Array.isArray(parsed.execStart)) {
+    const hit = parsed.execStart.find(arg => typeof arg === 'string' && /(^|[\/\\])live[A-Za-z0-9_-]*\.js$/.test(arg));
+    if (hit) return 'live';
+  }
+  if (typeof serviceName === 'string' && /-live(\.service)?$/.test(serviceName)) return 'live';
+  return 'paper';
+}
+
 function listVariants(deployDir) {
   let entries;
   try { entries = fs.readdirSync(deployDir); }
@@ -90,6 +102,7 @@ function listVariants(deployDir) {
     out.push({
       label,
       service,
+      mode: classifyMode(parsed, service),
       description: parsed.description,
       env: parsed.env || {},
       args: parsed.args || null,
@@ -200,4 +213,4 @@ async function readJournal(unitName, opts = {}) {
   }
 }
 
-module.exports = { parseServiceFile, listVariants, readLedger, readState, readJournal, parseJournalOutput };
+module.exports = { parseServiceFile, listVariants, classifyMode, readLedger, readState, readJournal, parseJournalOutput };
