@@ -68,33 +68,62 @@ log "Building polymarket CLI in release mode (5-15 min on first run)"
 sudo -u polybot bash -lc "cd $REPO_DIR && \$HOME/.cargo/bin/cargo build --release"
 ok "Built $REPO_DIR/target/release/polymarket"
 
+# ── Service discovery (mirrors redeploy.sh::discover_services) ───────────────
+# Auto-picks up polybot-strategy-[a-z].service plus snapshot/mastercopy/ui by
+# name. Keep in sync with deploy/redeploy.sh — single source of truth for
+# which services run in production.
+discover_services() {
+    local svcs=()
+    while IFS= read -r f; do
+        [[ -n "$f" ]] && svcs+=("$(basename "$f" .service)")
+    done < <(ls "${REPO_DIR}/deploy"/polybot-strategy-[a-z].service 2>/dev/null | sort)
+    svcs+=("polybot-snapshot")
+    for extra in polybot-mastercopy polybot-ui; do
+        [[ -f "${REPO_DIR}/deploy/${extra}.service" ]] && svcs+=("$extra")
+    done
+    printf '%s\n' "${svcs[@]}"
+}
+mapfile -t SERVICES < <(discover_services)
+
 # ── systemd units ────────────────────────────────────────────────────────────
-log "Installing systemd units"
-cp "$REPO_DIR/deploy/polybot-strategy.service" /etc/systemd/system/
-cp "$REPO_DIR/deploy/polybot-snapshot.service" /etc/systemd/system/
+log "Installing systemd units: ${SERVICES[*]}"
+for svc in "${SERVICES[@]}"; do
+    cp "$REPO_DIR/deploy/${svc}.service" /etc/systemd/system/
+done
 systemctl daemon-reload
 ok "systemd units installed"
 
 # ── Data dirs (persistent across redeploys) ──────────────────────────────────
+# systemd ReadWritePaths requires the dir to pre-exist; otherwise the unit
+# fails with status=226/NAMESPACE. Extract STRATEGY_DATA_DIR from each unit.
 mkdir -p "$REPO_DIR/scripts/strategy/data"
 mkdir -p "$REPO_DIR/scripts/research/data"
+for svc in "${SERVICES[@]}"; do
+    dir=$(grep -oE 'STRATEGY_DATA_DIR=[^ "]+' "$REPO_DIR/deploy/${svc}.service" 2>/dev/null | head -1 | cut -d= -f2-)
+    [[ -n "$dir" ]] && mkdir -p "$dir"
+done
 chown -R polybot:polybot "$REPO_DIR"
 ok "Data dirs ready"
 
+# ── Secrets directory (live executor wallet key, etc) ────────────────────────
+mkdir -p /etc/polybot
+chmod 750 /etc/polybot
+chown root:polybot /etc/polybot
+ok "/etc/polybot ready (root:polybot 750)"
+
 # ── Enable + start services ──────────────────────────────────────────────────
-systemctl enable --now polybot-strategy polybot-snapshot
-ok "Services enabled and started"
+systemctl enable --now "${SERVICES[@]}"
+ok "Services enabled and started: ${SERVICES[*]}"
 
 echo ""
 echo "✅ Setup complete."
 echo ""
-echo "  Strategy ledger:  $REPO_DIR/scripts/strategy/data/strategy-ledger.jsonl"
-echo "  Snapshot output:  $REPO_DIR/scripts/research/data/orderbook_snapshots.jsonl"
+echo "  Services:         ${SERVICES[*]}"
+echo "  Repo:             $REPO_DIR"
+echo "  Secrets dir:      /etc/polybot/"
 echo ""
-echo "  Status:           sudo systemctl status polybot-strategy polybot-snapshot"
-echo "  Strategy logs:    journalctl -u polybot-strategy -f"
-echo "  Snapshot logs:    journalctl -u polybot-snapshot -f"
-echo "  Status summary:   sudo -u polybot node $REPO_DIR/scripts/strategy/status.js"
+echo "  Status all:       for s in ${SERVICES[*]}; do echo \"\$s: \$(systemctl is-active \$s)\"; done"
+echo "  Live tail:        journalctl -u polybot-mastercopy -f   (or any service)"
 echo ""
 echo "  Redeploy after pushing new commits:"
 echo "                    sudo bash $REPO_DIR/deploy/redeploy.sh"
