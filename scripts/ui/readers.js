@@ -115,11 +115,12 @@ function readLedger(dataDir, _opts = {}) {
 
   const totals = emptyTotals();
   for (const r of records) {
-    if (r.kind === 'entry' || r.kind === 'mirror') {
+    if (r.kind === 'entry' || r.kind === 'mirror' || r.kind === 'live') {
       totals.entries++;
       const cost = Number(
         r.paperCost
         ?? r.paperSize
+        ?? r.filledUsd
         ?? (r.masterPrice != null && r.paperShares != null ? r.masterPrice * r.paperShares : 0)
       );
       totals.deployed += cost;
