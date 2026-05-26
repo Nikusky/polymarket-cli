@@ -54,10 +54,48 @@ as_user() { sudo -u "$SERVICE_USER" -H bash -lc "$*"; }
 
 cd "$REPO_ROOT"
 
+# Auto-recovery for scp-residue: an untracked working-tree file that is
+# byte-identical to an incoming tracked file blocks `git pull --ff-only`
+# with "would be overwritten by merge". When that happens, remove the
+# residue and retry — but ONLY after verifying byte-identity, so a real
+# local edit is never silently discarded.
+safe_pull() {
+    local out; out=$(mktemp)
+    if as_user "git -C ${REPO_ROOT} pull --ff-only" 2>&1 | tee "$out"; then
+        rm -f "$out"; return 0
+    fi
+    if ! grep -q "would be overwritten by merge" "$out"; then
+        rm -f "$out"; return 1
+    fi
+    warn "Pull blocked by untracked files — checking for scp-residue"
+    as_user "git -C ${REPO_ROOT} fetch --quiet"
+    local conflicts; conflicts=$(grep -E '^\s+\S+$' "$out" | sed 's/^[[:space:]]*//')
+    rm -f "$out"
+    local all_match=1
+    local file
+    for file in $conflicts; do
+        if as_user "git -C ${REPO_ROOT} show @{u}:${file} 2>/dev/null" \
+                | cmp -s - "${REPO_ROOT}/${file}" 2>/dev/null; then
+            ok "  ${file}: byte-identical to upstream — will remove and retry"
+        else
+            warn "  ${file}: DIFFERS from upstream — manual review required"
+            all_match=0
+        fi
+    done
+    if [[ $all_match -ne 1 ]]; then
+        warn "Resolve the differing files (review with 'diff <file> <(git show @{u}:<file>)'), then re-run redeploy"
+        return 1
+    fi
+    for file in $conflicts; do
+        as_user "rm -f ${REPO_ROOT}/${file}"
+    done
+    as_user "git -C ${REPO_ROOT} pull --ff-only"
+}
+
 if [[ $SKIP_PULL -eq 0 ]]; then
     log "Pulling latest into ${REPO_ROOT}"
     OLD_HEAD=$(as_user "git -C ${REPO_ROOT} rev-parse HEAD")
-    as_user "git -C ${REPO_ROOT} pull --ff-only"
+    safe_pull
     NEW_HEAD=$(as_user "git -C ${REPO_ROOT} rev-parse HEAD")
     if [[ "$OLD_HEAD" == "$NEW_HEAD" ]]; then
         ok "Already up to date ($NEW_HEAD)"
