@@ -261,6 +261,26 @@ test('settleMirror SCALED SELL + outcome-loses: pnl = +paperSize', () => {
   assert.ok(Math.abs(exit.pnl - 3) < 1e-9, `pnl=${exit.pnl}`);
 });
 
+test('settleMirror carries mode + paperSize onto the exit record', () => {
+  const mFlat = lib.buildMirror(mkTrade(), 1, 0);
+  const eFlat = lib.settleMirror(mFlat, 'Up', 0);
+  assert.strictEqual(eFlat.mode, 'FLAT');
+  assert.strictEqual(eFlat.paperSize, 1);
+
+  const mSc = lib.buildMirror(mkTrade({ size: 50, price: 0.40 }), 1, 0, 'SCALED');
+  const eSc = lib.settleMirror(mSc, 'Up', 0);
+  assert.strictEqual(eSc.mode, 'SCALED');
+  assert.ok(Math.abs(eSc.paperSize - 20) < 1e-9);
+});
+
+test('settleMirror missing mirror.mode defaults exit.mode to FLAT (back-compat)', () => {
+  // Legacy mirror records (pre-2026-05-26) lack `mode`; exits must still be readable.
+  const m = lib.buildMirror(mkTrade(), 1, 0);
+  delete m.mode;
+  const exit = lib.settleMirror(m, 'Up', 0);
+  assert.strictEqual(exit.mode, 'FLAT');
+});
+
 test('selectNewTrades filters across multiple masters by per-master lastSeen', () => {
   const trades = [
     mkTrade({ proxyWallet: '0xaaa', timestamp: 1000 }),

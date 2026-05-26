@@ -111,10 +111,12 @@ function settleMirror(mirror, winner, nowTs) {
     slug: mirror.slug,
     master: mirror.master,
     tradeSide: mirror.tradeSide || 'BUY',
+    mode: mirror.mode || 'FLAT',
     won: outcomeWon,
     winner,
     outcome: mirror.outcome,
     pnl,
+    paperSize: mirror.paperSize,
     paperShares: mirror.paperShares,
     masterPrice: mirror.masterPrice,
   };
