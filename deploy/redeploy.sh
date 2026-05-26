@@ -25,7 +25,7 @@ discover_services() {
     done < <(ls "${REPO_ROOT}/deploy"/polybot-strategy-[a-z].service 2>/dev/null | sort)
     svcs+=("polybot-snapshot")
     # Non-strategy daemons in deploy/, picked up by name
-    for extra in polybot-mastercopy polybot-ui; do
+    for extra in polybot-mastercopy polybot-mastercopy-scaled polybot-ui; do
         [[ -f "${REPO_ROOT}/deploy/${extra}.service" ]] && svcs+=("$extra")
     done
     printf '%s\n' "${svcs[@]}"
