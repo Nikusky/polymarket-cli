@@ -83,6 +83,69 @@ console.log('\n== main.js startup log (no network) ==');
   });
 }
 
+// Variant N — multi-entry + certainty sizing defaults off (backward compat)
+{
+  const r = runMain({});
+  test('default startup shows multi=off', () => {
+    assert.ok(r.stdout.includes('multi=off'), r.stdout || r.stderr);
+  });
+  test('default startup shows certainty=off', () => {
+    assert.ok(r.stdout.includes('certainty=off'), r.stdout || r.stderr);
+  });
+}
+
+// Variant N — full aggressive config
+{
+  const r = runMain({
+    MAX_ENTRIES_PER_SLOT: '4',
+    MAX_SLOT_USD: '300',
+    RE_OBSERVE_INTERVAL_SECS: '60',
+    RE_ENTRY_MIN_BPS_DELTA: '1',
+    CERTAINTY_SIZING: 'true',
+    CERTAINTY_MIN_USD: '10',
+    CERTAINTY_MAX_USD: '150',
+  });
+  test('variant N startup shows maxEntries=4', () => {
+    assert.ok(r.stdout.includes('maxEntries=4'), r.stdout || r.stderr);
+  });
+  test('variant N startup shows slotCap=$300', () => {
+    assert.ok(r.stdout.includes('slotCap=$300'), r.stdout);
+  });
+  test('variant N startup shows reObs=60s', () => {
+    assert.ok(r.stdout.includes('reObs=60s'), r.stdout);
+  });
+  test('variant N startup shows reDelta=1bps', () => {
+    assert.ok(r.stdout.includes('reDelta=1bps'), r.stdout);
+  });
+  test('variant N startup shows certainty=$10-$150', () => {
+    assert.ok(r.stdout.includes('certainty=$10-$150'), r.stdout);
+  });
+}
+
+// Variant O — fade the exhaustion (default off)
+{
+  const r = runMain({});
+  test('default startup shows mode=trend', () => {
+    assert.ok(r.stdout.includes('mode=trend'), r.stdout || r.stderr);
+  });
+}
+
+{
+  const r = runMain({
+    FADE_EXHAUSTION: 'true',
+    MAX_FILL_PRICE: '0.25',
+  }, ['11', '15', '100', '0.001']);
+  test('FADE_EXHAUSTION=true startup shows mode=fade', () => {
+    assert.ok(r.stdout.includes('mode=fade'), r.stdout || r.stderr);
+  });
+  test('variant O startup shows maxFill=0.25', () => {
+    assert.ok(r.stdout.includes('maxFill=0.25'), r.stdout);
+  });
+  test('variant O startup shows thresh=15bps', () => {
+    assert.ok(r.stdout.includes('thresh=15bps'), r.stdout);
+  });
+}
+
 // 5m BTC variant
 {
   const r = runMain({

@@ -1,0 +1,36 @@
+[Unit]
+Description=polyBOT strategy paper bot — variant N (aggressive: pyramid multi-entry, certainty-sized $10-$150, MAX_OBS_BPS=10 cap, stopLoss=10bps). Up to 4 entries/slot, $300 slot cap. Re-checks signal every 60s; adds another tranche if BTC continued >=1 bps further in our direction since last entry. No blackout. A/B vs M (single-entry + cap + stop) and vs L (single-entry + cap, no stop).
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=polybot
+Group=polybot
+WorkingDirectory=/opt/polybot/polymarket-cli
+Environment=STRATEGY_DATA_DIR=/opt/polybot/polymarket-cli/scripts/strategy/data-n
+Environment=MAX_FILL_PRICE=0.92
+Environment=MAX_OBS_BPS=10
+Environment=STOP_LOSS_RETBPS_REVERSAL=10
+Environment=MAX_ENTRIES_PER_SLOT=4
+Environment=MAX_SLOT_USD=300
+Environment=RE_OBSERVE_INTERVAL_SECS=60
+Environment=RE_OBSERVE_END_BUFFER_SECS=90
+Environment=RE_ENTRY_MIN_BPS_DELTA=1
+Environment=CERTAINTY_SIZING=true
+Environment=CERTAINTY_MIN_USD=10
+Environment=CERTAINTY_MAX_USD=150
+ExecStart=/usr/bin/node /opt/polybot/polymarket-cli/scripts/strategy/main.js 11 6 100 168
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=polybot-strategy-n
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/opt/polybot/polymarket-cli/scripts/strategy/data-n
+
+[Install]
+WantedBy=multi-user.target

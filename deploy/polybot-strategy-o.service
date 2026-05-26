@@ -1,0 +1,27 @@
+[Unit]
+Description=polyBOT strategy paper bot — variant O (FADE the exhaustion: bet the OPPOSITE side when |retBps|>=15 at minute 11). Empirical hook: J/K/L/M show 10+ bps is net-negative for the trend side, so the contra side at that moment is net-positive by construction. Single entry, $100, MAX_FILL_PRICE=0.25 ensures we only buy when the loser side is genuinely cheap. No stop-loss — max loss is already the cheap entry. Hold to settlement.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=polybot
+Group=polybot
+WorkingDirectory=/opt/polybot/polymarket-cli
+Environment=STRATEGY_DATA_DIR=/opt/polybot/polymarket-cli/scripts/strategy/data-o
+Environment=FADE_EXHAUSTION=true
+Environment=MAX_FILL_PRICE=0.25
+ExecStart=/usr/bin/node /opt/polybot/polymarket-cli/scripts/strategy/main.js 11 15 100 168
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=polybot-strategy-o
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/opt/polybot/polymarket-cli/scripts/strategy/data-o
+
+[Install]
+WantedBy=multi-user.target
