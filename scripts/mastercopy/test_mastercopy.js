@@ -198,6 +198,69 @@ test('settleMirror missing tradeSide defaults to BUY math (back-compat)', () => 
   assert.ok(Math.abs(exit.pnl - (1/0.45 - 1)) < 1e-9);
 });
 
+test('buildMirror default mode is FLAT and stamps mode on record', () => {
+  const m = lib.buildMirror(mkTrade(), 1, 1779399965);
+  assert.strictEqual(m.mode, 'FLAT');
+  assert.strictEqual(m.paperSize, 1);
+});
+
+test('buildMirror SCALED uses trade.size as paperShares', () => {
+  // Master traded 22.22 shares at $0.45 → paperShares=22.22, paperSize=22.22*0.45.
+  const m = lib.buildMirror(mkTrade({ size: 22.22, price: 0.45 }), 1, 1779399965, 'SCALED');
+  assert.strictEqual(m.mode, 'SCALED');
+  assert.strictEqual(m.paperShares, 22.22);
+  assert.ok(Math.abs(m.paperSize - (22.22 * 0.45)) < 1e-9, `paperSize=${m.paperSize}`);
+});
+
+test('buildMirror SCALED ignores mirrorSizeUsd argument', () => {
+  const a = lib.buildMirror(mkTrade({ size: 10, price: 0.30 }), 1,    0, 'SCALED');
+  const b = lib.buildMirror(mkTrade({ size: 10, price: 0.30 }), 9999, 0, 'SCALED');
+  assert.strictEqual(a.paperShares, b.paperShares);
+  assert.strictEqual(a.paperSize,   b.paperSize);
+});
+
+test('buildMirror SCALED returns null when trade.size is missing or invalid', () => {
+  assert.strictEqual(lib.buildMirror(mkTrade({ size: 0 }),     1, 0, 'SCALED'), null);
+  assert.strictEqual(lib.buildMirror(mkTrade({ size: -5 }),    1, 0, 'SCALED'), null);
+  assert.strictEqual(lib.buildMirror(mkTrade({ size: 'foo' }), 1, 0, 'SCALED'), null);
+});
+
+test('buildMirror unknown mode falls back to FLAT (defensive)', () => {
+  const m = lib.buildMirror(mkTrade(), 1, 1779399965, 'WHATEVER');
+  assert.strictEqual(m.mode, 'FLAT');
+  assert.strictEqual(m.paperSize, 1);
+});
+
+test('settleMirror SCALED BUY + win: pnl = paperShares - paperSize', () => {
+  // 10 shares Up at $0.30 → paperSize=3, paperShares=10. Up wins → pnl = 10 - 3 = +7.
+  const m = lib.buildMirror(mkTrade({ side: 'BUY', size: 10, price: 0.30, outcome: 'Up' }), 1, 0, 'SCALED');
+  const exit = lib.settleMirror(m, 'Up', 0);
+  assert.strictEqual(exit.won, true);
+  assert.ok(Math.abs(exit.pnl - 7) < 1e-9, `pnl=${exit.pnl}`);
+});
+
+test('settleMirror SCALED BUY + loss: pnl = -paperSize', () => {
+  const m = lib.buildMirror(mkTrade({ side: 'BUY', size: 10, price: 0.30, outcome: 'Up' }), 1, 0, 'SCALED');
+  const exit = lib.settleMirror(m, 'Down', 0);
+  assert.strictEqual(exit.won, false);
+  assert.ok(Math.abs(exit.pnl - (-3)) < 1e-9, `pnl=${exit.pnl}`);
+});
+
+test('settleMirror SCALED SELL + outcome-wins: pnl = paperSize - paperShares (loss for seller)', () => {
+  // Sold 10 shares Up at $0.30 → received 3, owes 10 if Up wins. pnl = 3 - 10 = -7.
+  const m = lib.buildMirror(mkTrade({ side: 'SELL', size: 10, price: 0.30, outcome: 'Up' }), 1, 0, 'SCALED');
+  const exit = lib.settleMirror(m, 'Up', 0);
+  assert.strictEqual(exit.tradeSide, 'SELL');
+  assert.ok(Math.abs(exit.pnl - (-7)) < 1e-9, `pnl=${exit.pnl}`);
+});
+
+test('settleMirror SCALED SELL + outcome-loses: pnl = +paperSize', () => {
+  const m = lib.buildMirror(mkTrade({ side: 'SELL', size: 10, price: 0.30, outcome: 'Up' }), 1, 0, 'SCALED');
+  const exit = lib.settleMirror(m, 'Down', 0);
+  assert.strictEqual(exit.won, false);
+  assert.ok(Math.abs(exit.pnl - 3) < 1e-9, `pnl=${exit.pnl}`);
+});
+
 test('selectNewTrades filters across multiple masters by per-master lastSeen', () => {
   const trades = [
     mkTrade({ proxyWallet: '0xaaa', timestamp: 1000 }),
@@ -382,6 +445,40 @@ const main = require('./main');
     assert.strictEqual(pos.tradeSide, 'SELL');
     assert.strictEqual(pos.masterPrice, 0.55);
     // Restore default so subsequent test runs are not contaminated.
+    delete process.env.MIRROR_SIDES;
+  });
+
+  await test('pollOnce in MIRROR_MODE=SCALED uses master trade.size for paperShares', async () => {
+    const tmpDirSc = fs.mkdtempSync(path.join(os.tmpdir(), 'mc-test-scaled-'));
+    process.env.STRATEGY_DATA_DIR = tmpDirSc;
+    process.env.MIRROR_MODE = 'SCALED';
+    process.env.MIRROR_SIDES = 'BUY,SELL';
+    delete require.cache[require.resolve('./main')];
+    const mSc = require('./main');
+    const state = { lastSeenByMaster: {}, positions: {} };
+    const t = mkTrade({
+      side: 'BUY', size: 50, price: 0.40, outcome: 'Up',
+      transactionHash: '0xSCALED1', timestamp: 1779399960,
+    });
+    await mSc.pollOnce(state, {
+      fetchTrades: async () => [t],
+      fetchWinner: async () => null,
+      now: () => 1779399965,
+    });
+    const pos = Object.values(state.positions)[0];
+    assert.strictEqual(pos.mode, 'SCALED');
+    assert.strictEqual(pos.paperShares, 50);
+    assert.ok(Math.abs(pos.paperSize - (50 * 0.40)) < 1e-9, `paperSize=${pos.paperSize}`);
+    // Settle: Up wins, pnl = 50 - 20 = +30.
+    const r = await mSc.pollOnce(state, {
+      fetchTrades: async () => [],
+      fetchWinner: async () => 'Up',
+      now: () => 1779400900,
+    });
+    assert.strictEqual(r.settled, 1);
+    const settled = Object.values(state.positions)[0];
+    assert.ok(Math.abs(settled.realizedPnl - 30) < 1e-9, `pnl=${settled.realizedPnl}`);
+    delete process.env.MIRROR_MODE;
     delete process.env.MIRROR_SIDES;
   });
 

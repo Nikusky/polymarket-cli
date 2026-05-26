@@ -1,5 +1,5 @@
 [Unit]
-Description=polyBOT mastercopy daemon — paper "what-if" mirror of cE25/b55fa/Truthful-Firewall btc-updown-15m BUYs at $1 size.
+Description=polyBOT mastercopy daemon — paper "what-if" mirror of cE25/b55fa/Truthful-Firewall btc-updown-15m BUYs+SELLs at $1 flat size (edge-per-fill).
 After=network-online.target
 Wants=network-online.target
 
@@ -9,7 +9,9 @@ User=polybot
 Group=polybot
 WorkingDirectory=/opt/polybot/polymarket-cli
 Environment=STRATEGY_DATA_DIR=/opt/polybot/polymarket-cli/scripts/mastercopy/data-mc
+Environment=MIRROR_MODE=FLAT
 Environment=MIRROR_SIZE_USD=1
+Environment=MIRROR_SIDES=BUY,SELL
 Environment=SLUG_PREFIXES=btc-updown-15m-
 Environment=POLL_INTERVAL_SEC=30
 Environment=MAX_LAG_SEC=7200

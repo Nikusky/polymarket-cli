@@ -38,6 +38,11 @@ const SLUG_PREFIXES = (process.env.SLUG_PREFIXES || 'btc-updown-15m-')
   .split(',').map((s) => s.trim()).filter(Boolean);
 
 const MIRROR_SIZE_USD = parseFloat(process.env.MIRROR_SIZE_USD || '1');
+// MIRROR_MODE = 'FLAT' (default; paperSize = MIRROR_SIZE_USD per fill) or
+// 'SCALED' (paperShares = master's actual trade.size; paperSize = shares * price).
+// SCALED tracks what we'd realize at the master's real notional; FLAT measures
+// edge-per-fill independent of master size. MIRROR_SIZE_USD is ignored in SCALED.
+const MIRROR_MODE = (process.env.MIRROR_MODE || 'FLAT').toUpperCase() === 'SCALED' ? 'SCALED' : 'FLAT';
 const POLL_INTERVAL_SEC = parseInt(process.env.POLL_INTERVAL_SEC || '30', 10);
 // Trades whose slot resolved more than MAX_LAG_SEC ago are dropped — we can't
 // usefully paper-mirror them (gamma prunes old closed markets).
@@ -116,7 +121,7 @@ async function pollOnce(state, deps = {}) {
     });
     for (const t of candidates) {
       if (!isFresh(t, nowFn(), MAX_LAG_SEC)) continue;
-      const m = buildMirror(t, MIRROR_SIZE_USD, nowFn());
+      const m = buildMirror(t, MIRROR_SIZE_USD, nowFn(), MIRROR_MODE);
       if (!m) continue;
       const key = positionKey(m);
       if (state.positions[key]) continue;
@@ -156,9 +161,10 @@ async function pollOnce(state, deps = {}) {
 }
 
 async function main() {
-  log('info', `mastercopy starting | masters=${MASTERS.length} prefixes=${SLUG_PREFIXES.join(',')} ` +
-              `sides=${[...MIRROR_SIDES].join('/')} size=$${MIRROR_SIZE_USD} poll=${POLL_INTERVAL_SEC}s ` +
-              `maxLag=${MAX_LAG_SEC}s runtime=${MAX_HOURS}h`);
+  const sizeLabel = MIRROR_MODE === 'SCALED' ? 'master.size' : `$${MIRROR_SIZE_USD}`;
+  log('info', `mastercopy starting | mode=${MIRROR_MODE} masters=${MASTERS.length} ` +
+              `prefixes=${SLUG_PREFIXES.join(',')} sides=${[...MIRROR_SIDES].join('/')} ` +
+              `size=${sizeLabel} poll=${POLL_INTERVAL_SEC}s maxLag=${MAX_LAG_SEC}s runtime=${MAX_HOURS}h`);
   log('info', `ledger=${LEDGER}`);
   const state = loadState();
   while (Date.now() < STOP_AT) {

@@ -1,0 +1,31 @@
+[Unit]
+Description=polyBOT mastercopy-scaled daemon — paper mirror of cE25/b55fa btc-updown-15m BUYs+SELLs scaled to master trade.size (real-notional analog). a923 excluded — $3 avg fill is structurally different from the ladder-MM masters.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=polybot
+Group=polybot
+WorkingDirectory=/opt/polybot/polymarket-cli
+Environment=STRATEGY_DATA_DIR=/opt/polybot/polymarket-cli/scripts/mastercopy/data-mc-scaled
+Environment=MIRROR_MODE=SCALED
+Environment=MIRROR_SIDES=BUY,SELL
+Environment=SLUG_PREFIXES=btc-updown-15m-
+Environment=POLL_INTERVAL_SEC=30
+Environment=MAX_LAG_SEC=7200
+Environment=MASTER_ADDRESSES=0xce25e214d5cfe4f459cf67f08df581885aae7fdc,0xb55fa1296e6ec55d0ce53d93b9237389f11764d4
+ExecStart=/usr/bin/node /opt/polybot/polymarket-cli/scripts/mastercopy/main.js 168
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=polybot-mastercopy-scaled
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/opt/polybot/polymarket-cli/scripts/mastercopy/data-mc-scaled
+
+[Install]
+WantedBy=multi-user.target

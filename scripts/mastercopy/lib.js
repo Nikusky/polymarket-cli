@@ -45,10 +45,28 @@ function isFresh(trade, nowTs, maxLagSec) {
 
 // Build a mirror ledger record from a raw master trade. Pure.
 // Records `tradeSide` so settleMirror can branch on BUY vs SELL paper math.
-function buildMirror(trade, mirrorSizeUsd, nowTs) {
+//
+// mode (default 'FLAT'):
+//   'FLAT'   — paperSize = mirrorSizeUsd, paperShares = mirrorSizeUsd / price.
+//              Measures *edge per fill* independent of master size.
+//   'SCALED' — paperShares = trade.size (master's actual shares),
+//              paperSize  = paperShares * price. `mirrorSizeUsd` is ignored.
+//              Measures what we'd realize at the master's real notional.
+// The chosen mode is persisted on the record so the ledger can be sliced post-hoc.
+function buildMirror(trade, mirrorSizeUsd, nowTs, mode) {
   const slot = parseSlot(trade.slug);
   if (!slot) return null;
-  const paperShares = mirrorSizeUsd / trade.price;
+  const resolvedMode = mode === 'SCALED' ? 'SCALED' : 'FLAT';
+  let paperSize;
+  let paperShares;
+  if (resolvedMode === 'SCALED') {
+    paperShares = parseFloat(trade.size);
+    if (!Number.isFinite(paperShares) || paperShares <= 0) return null;
+    paperSize = paperShares * trade.price;
+  } else {
+    paperSize = mirrorSizeUsd;
+    paperShares = mirrorSizeUsd / trade.price;
+  }
   return {
     kind: 'mirror',
     ts: nowTs,
@@ -60,7 +78,8 @@ function buildMirror(trade, mirrorSizeUsd, nowTs) {
     masterTxHash: trade.transactionHash,
     tradeSide: trade.side,
     outcome: trade.outcome,
-    paperSize: mirrorSizeUsd,
+    mode: resolvedMode,
+    paperSize,
     paperShares,
     openTs: slot.openTs,
     resolveTs: slot.resolveTs,
