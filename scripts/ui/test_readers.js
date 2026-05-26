@@ -57,7 +57,7 @@ console.log('\n== listVariants ==');
 await test('discovers all .service files under deployDir', () => {
   const v = listVariants(path.join(FIX, 'deploy'));
   const labels = v.map(x => x.label).sort();
-  assert.deepStrictEqual(labels, ['d', 'malformed', 'mastercopy', 'mc-sells']);
+  assert.deepStrictEqual(labels, ['d', 'malformed', 'mastercopy', 'mc-scaled', 'mc-sells']);
 });
 
 await test('parses ok variant correctly', () => {
@@ -93,6 +93,16 @@ await test('mastercopy-sells variant gets label mc-sells', () => {
   assert.ok(mcs, 'expected mc-sells label');
   assert.strictEqual(mcs.service, 'polybot-mastercopy-sells');
   assert.strictEqual(mcs.dataDir, 'scripts/mastercopy/data-mc-sells');
+});
+
+await test('mastercopy-scaled variant gets label mc-scaled with SCALED env', () => {
+  const v = listVariants(path.join(FIX, 'deploy'));
+  const mcSc = v.find(x => x.label === 'mc-scaled');
+  assert.ok(mcSc, 'expected mc-scaled label');
+  assert.strictEqual(mcSc.service, 'polybot-mastercopy-scaled');
+  assert.strictEqual(mcSc.dataDir, 'scripts/mastercopy/data-mc-scaled');
+  assert.strictEqual(mcSc.env.MIRROR_MODE, 'SCALED');
+  assert.strictEqual(mcSc.env.MIRROR_SIDES, 'BUY,SELL');
 });
 
 console.log('\n== readLedger ==');

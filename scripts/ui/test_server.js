@@ -58,8 +58,8 @@ function startServer() {
     const j = await r.json();
     assert.ok(typeof j.generatedAt === 'number');
     const labels = j.variants.map(v => v.label).sort();
-    // After Task 2's fix, fixtures include: d, malformed, mastercopy, mc-sells (snapshot is excluded by regex)
-    assert.deepStrictEqual(labels, ['d', 'malformed', 'mastercopy', 'mc-sells']);
+    // Fixtures include: d, malformed, mastercopy, mc-scaled, mc-sells (snapshot is excluded by regex)
+    assert.deepStrictEqual(labels, ['d', 'malformed', 'mastercopy', 'mc-scaled', 'mc-sells']);
   });
 
   await test('/api/state d variant has correct totals', async () => {

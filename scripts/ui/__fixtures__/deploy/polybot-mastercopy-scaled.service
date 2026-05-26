@@ -1,0 +1,10 @@
+[Unit]
+Description=polyBOT mastercopy SCALED mirror test fixture
+[Service]
+User=polybot
+Environment=STRATEGY_DATA_DIR=/opt/polybot/polymarket-cli/scripts/mastercopy/data-mc-scaled
+Environment=MIRROR_MODE=SCALED
+Environment=MIRROR_SIDES=BUY,SELL
+ExecStart=/usr/bin/node /opt/polybot/polymarket-cli/scripts/mastercopy/main.js 168
+[Install]
+WantedBy=multi-user.target
