@@ -1,0 +1,27 @@
+[Unit]
+Description=polyBOT strategy paper bot — variant L (J + MAX_OBS_BPS=10). Tests whether capping the upper observeBps band (5-10 bps sweet spot per 2026-05-26 analysis) improves PnL. A/B vs J. No blackout, no stop-loss.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=polybot
+Group=polybot
+WorkingDirectory=/opt/polybot/polymarket-cli
+Environment=STRATEGY_DATA_DIR=/opt/polybot/polymarket-cli/scripts/strategy/data-l
+Environment=MAX_FILL_PRICE=0.92
+Environment=MAX_OBS_BPS=10
+ExecStart=/usr/bin/node /opt/polybot/polymarket-cli/scripts/strategy/main.js 11 6 100 168
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=polybot-strategy-l
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/opt/polybot/polymarket-cli/scripts/strategy/data-l
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,28 @@
+[Unit]
+Description=polyBOT strategy paper bot — variant M (L + STOP_LOSS_RETBPS_REVERSAL=10). Tests cap + stop-loss combo. A/B vs L (isolates stop-loss effect on a capped strategy) and vs K (isolates cap effect on a stop-loss strategy). No blackout.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=polybot
+Group=polybot
+WorkingDirectory=/opt/polybot/polymarket-cli
+Environment=STRATEGY_DATA_DIR=/opt/polybot/polymarket-cli/scripts/strategy/data-m
+Environment=MAX_FILL_PRICE=0.92
+Environment=MAX_OBS_BPS=10
+Environment=STOP_LOSS_RETBPS_REVERSAL=10
+ExecStart=/usr/bin/node /opt/polybot/polymarket-cli/scripts/strategy/main.js 11 6 100 168
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=polybot-strategy-m
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/opt/polybot/polymarket-cli/scripts/strategy/data-m
+
+[Install]
+WantedBy=multi-user.target
