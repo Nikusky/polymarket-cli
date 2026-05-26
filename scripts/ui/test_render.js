@@ -67,6 +67,18 @@ test('skip record still shows reason', () => {
   const html = render.buildLedgerTable(records, 'all');
   assert.ok(html.includes('reason=below_threshold'), html);
 });
+test('live record renders side=BUY + filled shares (not reason=?)', () => {
+  const records = [{
+    kind: 'live', ts: 1779757039, slug: 'btc-updown-15m-1779756300',
+    outcome: 'Up', avgFillPrice: 0.42, filledShares: 2.38, filledUsd: 1,
+  }];
+  const html = render.buildLedgerTable(records, 'all');
+  assert.ok(html.includes('<td>live</td>'), 'kind cell missing');
+  assert.ok(html.includes('>BUY<'), `side should be BUY, got: ${html}`);
+  assert.ok(html.includes('@0.420'), `price not formatted: ${html}`);
+  assert.ok(html.includes('2.38sh'), `filled shares not formatted: ${html}`);
+  assert.ok(!html.includes('reason=?'), `should NOT fall through: ${html}`);
+});
 test('filter=mirror keeps only mirror rows', () => {
   const records = [
     { kind: 'entry', ts: 1, slug: 'a', avgFillPrice: 0.5, paperShares: 1 },
@@ -81,6 +93,18 @@ console.log('\n== render.buildPositionsTable ==');
 test('empty positions returns empty string', () => {
   assert.strictEqual(render.buildPositionsTable([]), '');
   assert.strictEqual(render.buildPositionsTable(null), '');
+});
+test('live positions show BUY + filled shares + filled usd', () => {
+  const positions = [{
+    slug: 'btc-updown-15m-1779756300', outcome: 'Up',
+    avgFillPrice: 0.42, filledShares: 2.38, filledUsd: 1.00,
+    openTs: 1779756300, resolveTs: 1779757200,
+  }];
+  const html = render.buildPositionsTable(positions);
+  assert.ok(html.includes('>BUY<'), `side should be BUY, not outcome: ${html}`);
+  assert.ok(html.includes('0.420'), `price col missing: ${html}`);
+  assert.ok(html.includes('2.38'), `shares col missing (filledShares): ${html}`);
+  assert.ok(html.includes('$1.00'), `cost col missing (filledUsd): ${html}`);
 });
 test('positions render as table, not JSON pre', () => {
   const positions = [{

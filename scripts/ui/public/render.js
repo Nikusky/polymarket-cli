@@ -69,13 +69,16 @@
       rows.map(r => {
         const ts = new Date((r.ts || 0) * 1000).toISOString().slice(5,16).replace('T',' ');
         const slug = (r.slug || '').slice(-12);
-        const side = r.betSide || r.tradeSide || r.outcome || '';
+        const isLiveShape = r.kind === 'live' || r.filledShares != null || r.filledUsd != null;
+        const side = r.betSide || r.tradeSide || (isLiveShape ? 'BUY' : r.outcome) || '';
         let detail = '';
         if (r.kind === 'entry') {
           detail = `@${Number(r.avgFillPrice||0).toFixed(3)} x ${Number(r.paperShares||0).toFixed(1)}sh`;
         } else if (r.kind === 'mirror') {
           const px = r.masterPrice != null ? Number(r.masterPrice) : Number(r.avgFillPrice||0);
           detail = `@${px.toFixed(3)} x ${Number(r.paperShares||0).toFixed(1)}sh`;
+        } else if (r.kind === 'live') {
+          detail = `@${Number(r.avgFillPrice||0).toFixed(3)} x ${Number(r.filledShares||0).toFixed(2)}sh`;
         } else if (r.kind === 'exit') {
           detail = `${r.won ? 'WIN' : 'LOSS'} ${formatPnl(r.pnl||0)}${r.stoppedOut ? ' STOP' : ''}`;
         } else {
@@ -90,11 +93,13 @@
     if (!positions || !positions.length) return '';
     const rows = positions.map(p => {
       const slug = (p.slug || '').slice(-16);
-      const side = p.betSide || p.tradeSide || p.outcome || '';
+      const isLiveShape = p.filledShares != null || p.filledUsd != null;
+      const side = p.betSide || p.tradeSide || (isLiveShape ? 'BUY' : p.outcome) || '';
       const px = p.avgFillPrice != null ? Number(p.avgFillPrice)
                : p.masterPrice != null ? Number(p.masterPrice) : null;
-      const shares = Number(p.paperShares || 0);
+      const shares = Number(p.paperShares ?? p.filledShares ?? 0);
       const cost = Number(p.paperCost != null ? p.paperCost
+                       : p.filledUsd != null ? p.filledUsd
                        : px != null ? px * shares : 0);
       const opened = p.openTs ? new Date(p.openTs * 1000).toISOString().slice(5,16).replace('T',' ') : '-';
       const resolves = p.resolveTs ? new Date(p.resolveTs * 1000).toISOString().slice(5,16).replace('T',' ') : '-';
