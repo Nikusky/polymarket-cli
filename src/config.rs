@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 const ENV_VAR: &str = "POLYMARKET_PRIVATE_KEY";
 const SIG_TYPE_ENV_VAR: &str = "POLYMARKET_SIGNATURE_TYPE";
+const FUNDER_ENV_VAR: &str = "POLYMARKET_FUNDER_OVERRIDE";
 pub(crate) const DEFAULT_SIGNATURE_TYPE: &str = "proxy";
 
 pub(crate) const NO_WALLET_MSG: &str =
@@ -135,6 +136,25 @@ pub fn save_wallet(key: &str, chain_id: u64, signature_type: &str) -> Result<()>
     Ok(())
 }
 
+/// Priority: CLI flag > env var. Returns the raw address string; the caller
+/// is responsible for parsing it into an `alloy::primitives::Address`. Used
+/// by `auth::authenticate_with_signer` to bypass the SDK's CTF-Proxy-Factory
+/// derivation for accounts whose actual proxy uses a different factory
+/// (e.g. Polymarket's newer Magic-Link smart-wallet model).
+pub fn resolve_funder_override(cli_flag: Option<&str>) -> Option<String> {
+    if let Some(f) = cli_flag
+        && !f.is_empty()
+    {
+        return Some(f.to_string());
+    }
+    if let Ok(f) = std::env::var(FUNDER_ENV_VAR)
+        && !f.is_empty()
+    {
+        return Some(f);
+    }
+    None
+}
+
 /// Priority: CLI flag > env var > config file.
 pub fn resolve_key(cli_flag: Option<&str>) -> Result<(Option<String>, KeySource)> {
     if let Some(key) = cli_flag {
@@ -205,6 +225,45 @@ mod tests {
             "gnosis-safe"
         );
         unsafe { unset(SIG_TYPE_ENV_VAR) };
+    }
+
+    #[test]
+    fn resolve_funder_flag_overrides_env() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        unsafe { set(FUNDER_ENV_VAR, "0x0000000000000000000000000000000000000001") };
+        let got = resolve_funder_override(Some("0xAaaAaaAAAAaaAaAAaAaaaaaaAAaaaAAaaAaaaaAA"));
+        assert_eq!(
+            got.as_deref(),
+            Some("0xAaaAaaAAAAaaAaAAaAaaaaaaAAaaaAAaaAaaaaAA")
+        );
+        unsafe { unset(FUNDER_ENV_VAR) };
+    }
+
+    #[test]
+    fn resolve_funder_env_var_returns_env_value() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        unsafe { set(FUNDER_ENV_VAR, "0x66c2E20976D8a138504b350aE3A1375CB1564E96") };
+        let got = resolve_funder_override(None);
+        assert_eq!(
+            got.as_deref(),
+            Some("0x66c2E20976D8a138504b350aE3A1375CB1564E96")
+        );
+        unsafe { unset(FUNDER_ENV_VAR) };
+    }
+
+    #[test]
+    fn resolve_funder_returns_none_when_unset() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        unsafe { unset(FUNDER_ENV_VAR) };
+        assert_eq!(resolve_funder_override(None), None);
+    }
+
+    #[test]
+    fn resolve_funder_skips_empty_env_var() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        unsafe { set(FUNDER_ENV_VAR, "") };
+        assert_eq!(resolve_funder_override(None), None);
+        unsafe { unset(FUNDER_ENV_VAR) };
     }
 
     #[test]

@@ -1,5 +1,6 @@
 use std::str::FromStr;
 
+use alloy::primitives::Address;
 use alloy::providers::ProviderBuilder;
 use anyhow::{Context, Result};
 use polymarket_client_sdk::auth::state::Authenticated;
@@ -47,9 +48,21 @@ pub async fn authenticate_with_signer(
 ) -> Result<clob::Client<Authenticated<Normal>>> {
     let sig_type = parse_signature_type(&config::resolve_signature_type(signature_type_flag)?);
 
-    clob::Client::default()
+    // Bypass the SDK's CTF-Proxy-Factory derivation when POLYMARKET_FUNDER_OVERRIDE
+    // is set. Needed for accounts whose actual proxy uses a different factory than
+    // the legacy CREATE2 derivation (e.g. Polymarket's newer Magic-Link smart-wallets).
+    // The SDK already exposes `.funder()` on its authentication builder; we just plumb
+    // an env var through to it.
+    let mut builder = clob::Client::default()
         .authentication_builder(signer)
-        .signature_type(sig_type)
+        .signature_type(sig_type);
+    if let Some(funder_str) = config::resolve_funder_override(None) {
+        let funder = Address::from_str(&funder_str).with_context(|| {
+            format!("Invalid POLYMARKET_FUNDER_OVERRIDE address: {funder_str}")
+        })?;
+        builder = builder.funder(funder);
+    }
+    builder
         .authenticate()
         .await
         .context("Failed to authenticate with Polymarket CLOB")
