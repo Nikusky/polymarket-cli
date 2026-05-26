@@ -1,0 +1,63 @@
+[Unit]
+Description=polyBOT mastercopy LIVE — places REAL CLOB orders mirroring cE25/b55fa/Truthful-Firewall BUYs.
+After=network-online.target
+Wants=network-online.target
+
+# Documentation lives next to the daemon:
+#   scripts/mastercopy/live.js       - main loop, risk gates, order placement
+#   scripts/mastercopy/live-lib.js   - pure helpers (priceCap, decideFill, checkRiskGates)
+#   scripts/mastercopy/test_live.js  - unit tests for the pure helpers
+#
+# ⚠️ This unit is NOT auto-enabled by setup.sh or redeploy.sh. Activation is a
+# deliberate manual step. See live.js header for the full checklist.
+
+[Service]
+Type=simple
+User=polybot
+Group=polybot
+WorkingDirectory=/opt/polybot/polymarket-cli/scripts/mastercopy
+
+# EnvironmentFile loads POLYMARKET_PRIVATE_KEY into the service's environment.
+# The file is root:polybot 0600 — systemd (pid 1) reads it before dropping privs.
+EnvironmentFile=/etc/polybot/proxy-key.env
+
+# Operational tuning. Change MIRROR_SIZE_USD as the strategy proves out.
+Environment=STRATEGY_DATA_DIR=/opt/polybot/polymarket-cli/scripts/mastercopy/data-mc-live
+Environment=MASTER_ADDRESSES=0xce25e214d5cfe4f459cf67f08df581885aae7fdc,0xb55fa1296e6ec55d0ce53d93b9237389f11764d4,0xa9239c0ca3dee2d03232481212474e1d781b6704
+Environment=SLUG_PREFIXES=btc-updown-15m-
+Environment=MIRROR_SIZE_USD=5
+Environment=FILL_CAP_MULT=1.10
+Environment=POLL_INTERVAL_SEC=30
+Environment=MAX_LAG_SEC=1800
+Environment=MIN_BALANCE_USD=200
+Environment=MAX_DAILY_LOSS_USD=300
+Environment=MAX_CONCURRENT=150
+Environment=CLI_BIN=/opt/polybot/polymarket-cli/target/release/polymarket
+Environment=POLYMARKET_SIGNATURE_TYPE=proxy
+
+ExecStart=/usr/bin/node /opt/polybot/polymarket-cli/scripts/mastercopy/live.js 168
+Restart=on-failure
+RestartSec=30
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=polybot-mastercopy-live
+
+# Sandbox: same hardening as polybot-mastercopy.service. ReadWritePaths must
+# include the data dir or systemd refuses to start with status=226/NAMESPACE.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/opt/polybot/polymarket-cli/scripts/mastercopy/data-mc-live
+
+[Install]
+# `[Install]` is present so `systemctl enable polybot-mastercopy-live` works,
+# but the unit is intentionally OMITTED from setup.sh::discover_services and
+# redeploy.sh::discover_services. Operator must enable manually after:
+#   1. /etc/polybot/proxy-key.env populated with the right wallet's key
+#   2. Proxy collateral balance >= MIN_BALANCE_USD
+#   3. Paper variant (polybot-mastercopy) has been profitable for >= 7 days
+WantedBy=multi-user.target
