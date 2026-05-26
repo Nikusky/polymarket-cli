@@ -99,7 +99,9 @@ ok "systemd units installed"
 mkdir -p "$REPO_DIR/scripts/strategy/data"
 mkdir -p "$REPO_DIR/scripts/research/data"
 for svc in "${SERVICES[@]}"; do
-    dir=$(grep -oE 'STRATEGY_DATA_DIR=[^ "]+' "$REPO_DIR/deploy/${svc}.service" 2>/dev/null | head -1 | cut -d= -f2-)
+    # || true: services without STRATEGY_DATA_DIR (snapshot, ui) make grep
+    # return 1, which under `set -o pipefail` would abort the whole script.
+    dir=$(grep -oE 'STRATEGY_DATA_DIR=[^ "]+' "$REPO_DIR/deploy/${svc}.service" 2>/dev/null | head -1 | cut -d= -f2- || true)
     [[ -n "$dir" ]] && mkdir -p "$dir"
 done
 chown -R polybot:polybot "$REPO_DIR"
