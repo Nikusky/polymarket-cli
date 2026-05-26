@@ -26,6 +26,10 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { ClobClient, OrderType, Side, Chain, SignatureTypeV2, AssetType } = require('@polymarket/clob-client-v2');
+const { createWalletClient, http } = require('viem');
+const { privateKeyToAccount } = require('viem/accounts');
+const { polygon } = require('viem/chains');
 const { selectNewTrades, parseSlot, advanceLastSeen, isFresh } = require('./lib');
 const { decideFill, checkRiskGates, rollingPnl, bestAskFromBook } = require('./live-lib');
 
@@ -58,6 +62,44 @@ const GATES = {
   maxDailyLossUsd:  MAX_DAILY_LOSS_USD,
   maxConcurrent:    MAX_CONCURRENT,
 };
+
+// v2 SDK config — Polymarket's CLOB has migrated; the legacy Rust SDK we use
+// for reads returns `order_version_mismatch` on create-order. Order placement
+// and authenticated balance reads go through the v2 SDK.
+const CLOB_HOST    = process.env.CLOB_HOST  || 'https://clob.polymarket.com';
+const FUNDER_ADDR  = process.env.POLYMARKET_FUNDER_OVERRIDE;
+const PRIVATE_KEY  = process.env.POLYMARKET_PRIVATE_KEY;
+
+let _clobClient = null;
+const _tickSizeCache = new Map();
+
+// Bootstrap the v2 ClobClient once per process. L1 (EIP-712 sig) → API creds → L2 client.
+// Uses SignatureTypeV2.POLY_1271 (deposit-wallet flow) because Nikusky7-style accounts
+// (created on Polymarket's newer signup path) require ERC-1271 maker signatures.
+async function bootstrapClobClient() {
+  if (_clobClient) return _clobClient;
+  if (!PRIVATE_KEY || !FUNDER_ADDR) {
+    throw new Error('POLYMARKET_PRIVATE_KEY and POLYMARKET_FUNDER_OVERRIDE required');
+  }
+  const account = privateKeyToAccount(PRIVATE_KEY);
+  const walletClient = createWalletClient({ account, chain: polygon, transport: http() });
+  const opts = {
+    host: CLOB_HOST, chain: Chain.POLYGON, signer: walletClient,
+    funderAddress: FUNDER_ADDR, signatureType: SignatureTypeV2.POLY_1271,
+  };
+  const bootstrap = new ClobClient(opts);
+  const creds = await bootstrap.createOrDeriveApiKey();
+  _clobClient = new ClobClient({ ...opts, creds, throwOnError: true });
+  return _clobClient;
+}
+
+async function getTickSize(tokenId) {
+  if (_tickSizeCache.has(tokenId)) return _tickSizeCache.get(tokenId);
+  const client = await bootstrapClobClient();
+  const ts = await client.getTickSize(tokenId);
+  _tickSizeCache.set(tokenId, ts);
+  return ts;
+}
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -96,12 +138,22 @@ function runCli(args, timeoutMs = 15000) {
   try { return JSON.parse(r.stdout); } catch { return null; }
 }
 
-function readBalance() {
-  const r = runCli(['clob', 'balance', '--asset-type', 'collateral']);
-  if (!r) return null;
-  const raw = r.balance ?? r.collateral ?? r;
-  const n = parseFloat(typeof raw === 'object' ? (raw.balance ?? 0) : raw);
-  return Number.isFinite(n) ? n : null;
+// Authenticated cash balance for the funder (deposit wallet). The Rust CLI's
+// `clob balance` derives the proxy server-side from the EOA and ignores our
+// funder override, so we use the v2 SDK which carries funderAddress through.
+async function readBalance() {
+  try {
+    const client = await bootstrapClobClient();
+    const resp = await client.getBalanceAllowance({ asset_type: AssetType.COLLATERAL });
+    // Response is { balance: "12345678" (raw 6-decimal USDC), allowances: [...] }
+    // or { balance: <number> } depending on SDK version — normalize.
+    const raw = resp?.balance ?? resp;
+    const num = typeof raw === 'string' ? parseFloat(raw) / 1e6 : parseFloat(raw);
+    return Number.isFinite(num) ? num : null;
+  } catch (e) {
+    log('warn', `getBalanceAllowance failed: ${e.message}`);
+    return null;
+  }
 }
 
 // ── HTTP helpers ────────────────────────────────────────────────────────────
@@ -196,7 +248,7 @@ async function pollOnce(state) {
       if (state.positions[key]) { skipped++; continue; }
 
       // Per-trade balance read (fresh — orders settle quickly).
-      const balance = readBalance();
+      const balance = await readBalance();
       const gate = checkRiskGates({
         balanceUsd: balance, dailyPnl, openCount: openCount + entered,
         killFileExists: fs.existsSync(KILL), gates: GATES,
@@ -212,7 +264,8 @@ async function pollOnce(state) {
         continue;
       }
 
-      // Resolve token, read book, check price cap.
+      // Resolve token, read book, check price cap (pre-order; market order
+      // doesn't enforce a cap on its own — our decision-time check does).
       const tokenId = await tokenIdFor(t.slug, t.outcome);
       if (!tokenId) {
         append({ kind: 'skip_live', ts: now, slug: t.slug, master: t.proxyWallet,
@@ -232,39 +285,45 @@ async function pollOnce(state) {
         continue;
       }
 
-      // Place the order: FAK (Fill-And-Kill) = marketable limit, takes
-      // available liquidity up to limitPrice, cancels the rest. This is
-      // what gives us the masterPrice × 1.10 price cap.
-      const sizeShares = fill.shares.toFixed(2);
-      const order = runCli([
-        'clob', 'create-order',
-        '--token', tokenId,
-        '--side',  'buy',
-        '--price', fill.limitPrice.toFixed(3),
-        '--size',  sizeShares,
-        '--order-type', 'FAK',
-      ], 20000);
-      if (!order || order.error) {
+      // Place a FAK market BUY for MIRROR_SIZE_USD via v2 SDK. Price cap is
+      // already enforced by the bestAsk vs fill.cap check above; the SDK call
+      // gives us precision-safe maker/taker amounts (which manual price×size
+      // limit orders failed on — see commit 508b704).
+      let order, sdkError = null;
+      try {
+        const client = await bootstrapClobClient();
+        const tickSize = await getTickSize(tokenId);
+        order = await client.createAndPostMarketOrder(
+          { tokenID: tokenId, amount: MIRROR_SIZE_USD, side: Side.BUY, orderType: OrderType.FAK },
+          { tickSize },
+          OrderType.FAK,
+        );
+      } catch (e) {
+        sdkError = e.message || String(e);
+        order = null;
+      }
+      if (!order || order.success === false || order.error || sdkError) {
+        const reason = sdkError || order?.error || order?.errorMsg || 'no response';
         append({ kind: 'skip_live', ts: now, slug: t.slug, master: t.proxyWallet,
                  masterPrice: t.price, reason: 'order_failed',
-                 detail: order?.error || 'no response', priceLimit: fill.limitPrice });
-        log('FAIL ', `order rejected for ${t.slug.slice(-10)}: ${order?.error || 'no response'}`);
+                 detail: reason, priceLimit: fill.limitPrice });
+        log('FAIL ', `order rejected for ${t.slug.slice(-10)}: ${reason}`);
         skipped++; continue;
       }
 
-      // Extract realized fill. Polymarket order responses commonly include
-      // matchedAmount (shares) and avgPrice for FAK fills; fall back to
-      // submitted values if the response shape varies.
-      const filledShares = parseFloat(order.matchedAmount ?? order.takingAmount ?? sizeShares);
-      const avgFillPrice = parseFloat(order.avgPrice ?? fill.limitPrice);
-      const filledUsd    = filledShares * avgFillPrice;
+      // v2 SDK response: { orderID, takingAmount, makingAmount, status, transactionsHashes, success }
+      const filledShares = parseFloat(order.takingAmount ?? 0);
+      const filledUsd    = parseFloat(order.makingAmount ?? 0);
+      const avgFillPrice = filledShares > 0 ? filledUsd / filledShares : fill.limitPrice;
 
       const entry = {
         kind: 'live', ts: now, slug: t.slug, master: t.proxyWallet,
         masterPrice: t.price, masterTradeTs: t.timestamp, masterTxHash: t.transactionHash,
         outcome: t.outcome, tokenId,
         bestAskAtCheck: ask, priceLimit: fill.limitPrice,
-        orderId: order.orderId ?? order.id ?? null,
+        orderId: order.orderID ?? null,
+        orderStatus: order.status ?? null,
+        txHashes: order.transactionsHashes ?? [],
         filledShares, filledUsd, avgFillPrice,
         openTs: slot.openTs, resolveTs: slot.resolveTs,
       };
@@ -289,11 +348,20 @@ async function main() {
   log('info ', `ledger=${LEDGER}`);
   log('info ', `kill=${KILL} (touch to stop)`);
   log('info ', `CLI=${CLI_BIN}`);
+  log('info ', `CLOB=${CLOB_HOST} funder=${FUNDER_ADDR || '(unset)'}`);
 
-  // Boot gate: refuse to start if balance is unreadable or below MIN.
-  const bootBalance = readBalance();
+  // Boot gate: bootstrap the v2 SDK (L1 auth + creds derivation) then verify
+  // balance is readable + above MIN. Fail-fast on any of these.
+  try {
+    await bootstrapClobClient();
+    log('info ', 'v2 SDK bootstrapped (L1 sig + creds OK)');
+  } catch (e) {
+    log('err  ', `bootstrap failed: ${e.message} — check POLYMARKET_PRIVATE_KEY and POLYMARKET_FUNDER_OVERRIDE`);
+    process.exit(2);
+  }
+  const bootBalance = await readBalance();
   if (bootBalance === null) {
-    log('err  ', 'cannot read balance at boot — check POLYMARKET_PRIVATE_KEY and CLI_BIN');
+    log('err  ', 'cannot read balance at boot — check POLYMARKET_PRIVATE_KEY and POLYMARKET_FUNDER_OVERRIDE');
     process.exit(2);
   }
   if (bootBalance < MIN_BALANCE_USD) {
