@@ -21,6 +21,59 @@
   }
   let hiddenLabels = loadHidden();
 
+  // Persisted PnL "since" range spec. One of 'all' | '24h' | '7d' | '30d' |
+  // '<datetime-local-string>'. See render.js resolveSince().
+  const SINCE_KEY = 'polybot.ui.since';
+  function loadSince() {
+    try { return localStorage.getItem(SINCE_KEY) || 'all'; }
+    catch { return 'all'; }
+  }
+  function saveSince(s) {
+    try { localStorage.setItem(SINCE_KEY, s || 'all'); } catch {}
+  }
+  let sinceSpec = loadSince();
+
+  // Returns a shallow copy of `v` with totals/cumulativePnl recomputed over
+  // [sinceTs, now]. When sinceTs is null, returns `v` unchanged.
+  function applyRangeToVariant(v, sinceTs) {
+    if (sinceTs == null) return v;
+    const { totals, cumulativePnl } = R.windowTotals(v.rangeRecords || [], sinceTs);
+    return Object.assign({}, v, { totals, cumulativePnl });
+  }
+
+  // Returns the variants array with the current range window applied.
+  function applyRange(state) {
+    const ts = R.resolveSince(sinceSpec);
+    if (!state || !state.variants) return state;
+    return Object.assign({}, state, {
+      variants: state.variants.map(v => applyRangeToVariant(v, ts)),
+    });
+  }
+
+  // Wires the range picker controls inside `container` (an Element). Buttons
+  // with data-since switch presets immediately; the Apply button reads the
+  // datetime-local input and switches to a custom timestamp.
+  function bindRangePicker(container) {
+    if (!container) return;
+    container.querySelectorAll('button.range-btn[data-since]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        sinceSpec = btn.getAttribute('data-since');
+        saveSince(sinceSpec);
+        fetchAndRender();
+      });
+    });
+    const apply = container.querySelector('#range-apply');
+    const input = container.querySelector('#range-custom');
+    if (apply && input) {
+      apply.addEventListener('click', () => {
+        if (!input.value) return;
+        sinceSpec = input.value;
+        saveSince(sinceSpec);
+        fetchAndRender();
+      });
+    }
+  }
+
   async function fetchAndRender() {
     const route = R.parseHash(window.location.hash);
     try {
@@ -29,7 +82,7 @@
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         state = await r.json();
         renderSidebar(state, route);
-        renderOverview(state);
+        renderOverview(applyRange(state));
       } else if (route.view === 'variant') {
         const [stateRes, vRes] = await Promise.all([
           fetch('/api/state'),
@@ -94,10 +147,12 @@
     document.getElementById('root').innerHTML =
       `<h2>Overview</h2>` +
       `<p class="muted">Generated ${new Date(state.generatedAt * 1000).toISOString()} | ${state.variants.length} variants</p>` +
+      R.buildRangePicker(sinceSpec) +
       `<table><thead><tr><th>Variant</th><th>Exits</th><th>WR</th><th>PnL</th><th>Deployed</th><th>Open</th><th>Description</th></tr></thead>` +
       `<tbody>${rows}</tbody></table>` +
       `<h3 style="margin-top:24px">Cumulative PnL</h3>` +
       `<canvas id="chart" height="120"></canvas>`;
+    bindRangePicker(document.querySelector('[data-role="range"]'));
     drawChart(state);
   }
 
@@ -157,12 +212,24 @@
 
   function renderVariantDetail(payload) {
     const v = payload.spec || {};
-    const ledger = payload.ledger || [];
+    const allLedger = payload.ledger || [];
     const positions = payload.positions || [];
+    const sinceTs = R.resolveSince(sinceSpec);
+
+    // Window the variant's own ledger + totals client-side. When sinceTs is
+    // null we keep the server-computed totals and full ledger.
+    const windowed = sinceTs == null
+      ? { totals: payload.totals || {}, cumulativePnl: null }
+      : R.windowTotals(allLedger, sinceTs);
+    const ledger = sinceTs == null
+      ? allLedger
+      : allLedger.filter(r => Number(r.ts || 0) >= sinceTs);
+
     document.getElementById('root').innerHTML =
       `<h3 style="margin:0 0 8px">${(v.label || '').toUpperCase()} - cumulative PnL</h3>` +
+      R.buildRangePicker(sinceSpec) +
       `<canvas id="chart" height="140"></canvas>` +
-      R.buildVariantSpec({ ...v, totals: payload.totals }) +
+      R.buildVariantSpec({ ...v, totals: windowed.totals }) +
       R.buildPositionsTable(positions) +
       `<div class="toolbar">` +
       `Filter: ` +
@@ -177,17 +244,20 @@
       `<a href="#/logs/${v.label}">View logs -></a>` +
       `</div>` +
       `<div id="ledger">${R.buildLedgerTable(ledger, 'all')}</div>`;
+    bindRangePicker(document.querySelector('[data-role="range"]'));
     document.getElementById('filter').addEventListener('change', e => {
       document.getElementById('ledger').innerHTML = R.buildLedgerTable(ledger, e.target.value);
     });
-    drawVariantChart(v.label);
+    drawVariantChart(v.label, windowed.cumulativePnl);
   }
 
-  function drawVariantChart(label) {
+  function drawVariantChart(label, windowedSeries) {
     const ctx = document.getElementById('chart');
     if (!ctx || !window.Chart || !state) return;
     const v = (state.variants || []).find(x => x.label === label);
-    const series = v && v.cumulativePnl ? v.cumulativePnl : [];
+    const series = windowedSeries != null
+      ? windowedSeries
+      : (v && v.cumulativePnl ? v.cumulativePnl : []);
     const data = series.map(([t, p]) => ({ x: t * 1000, y: p }));
     if (chart) chart.destroy();
     chart = new window.Chart(ctx, {

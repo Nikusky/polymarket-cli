@@ -17,6 +17,34 @@ function json(res, status, body) {
   res.end(buf);
 }
 
+// Compact projection of ledger records — only the fields the UI needs to
+// recompute windowed totals/cumulativePnl client-side. Bounded by
+// RANGE_CUTOFF_SEC (35 days) and to record kinds that affect totals.
+const RANGE_CUTOFF_SEC = 35 * 86400;
+const RANGE_KINDS = new Set(['entry', 'mirror', 'live', 'exit']);
+
+function projectRangeRecords(records) {
+  const cutoff = Math.floor(Date.now() / 1000) - RANGE_CUTOFF_SEC;
+  const out = [];
+  for (const r of (records || [])) {
+    if (!RANGE_KINDS.has(r.kind)) continue;
+    if (Number(r.ts || 0) < cutoff) continue;
+    if (r.kind === 'exit') {
+      out.push({
+        kind: 'exit', ts: r.ts,
+        pnl: r.pnl, won: r.won, stoppedOut: r.stoppedOut,
+      });
+    } else {
+      out.push({
+        kind: r.kind, ts: r.ts,
+        paperCost: r.paperCost, paperSize: r.paperSize, filledUsd: r.filledUsd,
+        masterPrice: r.masterPrice, paperShares: r.paperShares,
+      });
+    }
+  }
+  return out;
+}
+
 function buildStateAggregate() {
   const variants = readers.listVariants(path.join(ROOT, 'deploy'));
   const out = [];
@@ -38,6 +66,7 @@ function buildStateAggregate() {
       openCount: state.positions.length,
       latestExit: latestExit ? { ts: latestExit.ts, pnl: latestExit.pnl, betSide: latestExit.betSide, won: latestExit.won } : null,
       cumulativePnl: ledger.cumulativePnl || [],
+      rangeRecords: projectRangeRecords(ledger.records),
       error: v.error || ledger.error || state.error || null,
     });
   }

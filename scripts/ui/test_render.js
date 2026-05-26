@@ -118,5 +118,108 @@ test('positions render as table, not JSON pre', () => {
   assert.ok(html.includes('0.180'), `price col missing: ${html}`);
 });
 
+console.log('\n== render.resolveSince ==');
+test('null/empty/all resolve to null (lifetime)', () => {
+  assert.strictEqual(render.resolveSince(null), null);
+  assert.strictEqual(render.resolveSince(''), null);
+  assert.strictEqual(render.resolveSince('all'), null);
+});
+test('"24h" returns now - 86400 with explicit now', () => {
+  const nowMs = 1748275200000;
+  assert.strictEqual(render.resolveSince('24h', nowMs), Math.floor(nowMs / 1000) - 86400);
+});
+test('"7d" returns now - 7*86400', () => {
+  const nowMs = 1748275200000;
+  assert.strictEqual(render.resolveSince('7d', nowMs), Math.floor(nowMs / 1000) - 7 * 86400);
+});
+test('custom ISO string is parsed to unix seconds', () => {
+  const ts = render.resolveSince('2026-05-25T14:00:00Z');
+  assert.strictEqual(ts, Math.floor(Date.parse('2026-05-25T14:00:00Z') / 1000));
+});
+test('unparseable custom string returns null', () => {
+  assert.strictEqual(render.resolveSince('not-a-date'), null);
+});
+
+console.log('\n== render.windowTotals ==');
+const sampleRecords = [
+  { kind: 'entry', ts: 100, paperCost: 1.0 },
+  { kind: 'exit',  ts: 110, pnl:  0.50, won: true,  stoppedOut: false },
+  { kind: 'entry', ts: 200, paperCost: 1.0 },
+  { kind: 'exit',  ts: 210, pnl: -0.30, won: false, stoppedOut: true  },
+  { kind: 'entry', ts: 300, paperCost: 2.0 },
+  { kind: 'exit',  ts: 310, pnl:  0.40, won: true,  stoppedOut: false },
+  { kind: 'skip',  ts: 305 },
+];
+test('null sinceTs walks every record (lifetime)', () => {
+  const w = render.windowTotals(sampleRecords, null);
+  assert.strictEqual(w.totals.entries, 3);
+  assert.strictEqual(w.totals.exits, 3);
+  assert.strictEqual(w.totals.wins, 2);
+  assert.strictEqual(w.totals.losses, 1);
+  assert.strictEqual(w.totals.stopExits, 1);
+  assert.strictEqual(w.totals.pnl, 0.60);
+  assert.strictEqual(w.totals.deployed, 4.0);
+  assert.deepStrictEqual(w.cumulativePnl, [[110, 0.5], [210, 0.2], [310, 0.6]]);
+});
+test('sinceTs drops earlier records and re-zeros cumulativePnl', () => {
+  const w = render.windowTotals(sampleRecords, 200);
+  assert.strictEqual(w.totals.entries, 2);
+  assert.strictEqual(w.totals.exits, 2);
+  assert.strictEqual(w.totals.wins, 1);
+  assert.strictEqual(w.totals.losses, 1);
+  assert.strictEqual(w.totals.stopExits, 1);
+  assert.strictEqual(w.totals.pnl, 0.10);
+  assert.strictEqual(w.totals.deployed, 3.0);
+  assert.deepStrictEqual(w.cumulativePnl, [[210, -0.3], [310, 0.1]]);
+});
+test('sinceTs past all records yields empty totals', () => {
+  const w = render.windowTotals(sampleRecords, 999);
+  assert.strictEqual(w.totals.entries, 0);
+  assert.strictEqual(w.totals.exits, 0);
+  assert.strictEqual(w.totals.pnl, 0);
+  assert.deepStrictEqual(w.cumulativePnl, []);
+});
+test('undefined records returns zeroed totals', () => {
+  const w = render.windowTotals(undefined, null);
+  assert.strictEqual(w.totals.entries, 0);
+  assert.strictEqual(w.totals.exits, 0);
+  assert.deepStrictEqual(w.cumulativePnl, []);
+});
+test('mirror and live kinds count as entries with cost fallback', () => {
+  const recs = [
+    { kind: 'mirror', ts: 1, masterPrice: 0.5, paperShares: 2 },
+    { kind: 'live',   ts: 2, filledUsd: 2.5 },
+  ];
+  const w = render.windowTotals(recs, null);
+  assert.strictEqual(w.totals.entries, 2);
+  assert.strictEqual(w.totals.deployed, 3.5);
+});
+
+console.log('\n== render.buildRangePicker ==');
+test('default ("all") marks the All button active', () => {
+  const html = render.buildRangePicker('all');
+  assert.ok(/class="range-btn active" data-since="all"/.test(html), html);
+  assert.ok(html.includes('data-since="24h"'), html);
+  assert.ok(html.includes('data-since="7d"'), html);
+  assert.ok(html.includes('data-since="30d"'), html);
+});
+test('"7d" preset marks only the 7d button active', () => {
+  const html = render.buildRangePicker('7d');
+  assert.ok(/class="range-btn active" data-since="7d"/.test(html), html);
+  assert.ok(!/class="range-btn active" data-since="all"/.test(html), html);
+});
+test('custom datetime spec marks Apply button active and prefills input', () => {
+  const html = render.buildRangePicker('2026-05-25T14:00');
+  assert.ok(html.includes('value="2026-05-25T14:00"'), html);
+  assert.ok(/class="range-btn active" id="range-apply"/.test(html), html);
+});
+test('buildRangeLabel reads "all-time" for null', () => {
+  assert.strictEqual(render.buildRangeLabel(null), 'all-time');
+});
+test('buildRangeLabel formats timestamp as "since YYYY-MM-DD HH:MMZ"', () => {
+  const ts = Math.floor(Date.parse('2026-05-25T14:00:00Z') / 1000);
+  assert.strictEqual(render.buildRangeLabel(ts), 'since 2026-05-25 14:00Z');
+});
+
 console.log(`\n${failed === 0 ? 'PASS' : 'FAIL'} - ${failed} failure(s)`);
 process.exit(failed === 0 ? 0 : 1);

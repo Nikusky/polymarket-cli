@@ -127,5 +127,96 @@
     }).join('\n') + `</pre>`;
   }
 
-  return { parseHash, formatPnl, escapeHtml, buildOverviewRow, buildVariantSpec, buildLedgerTable, buildPositionsTable, buildLogsList };
+  // PnL range windowing.
+  //
+  // `spec` is one of: 'all' | '24h' | '7d' | '30d' | '<datetime-local-string>' | null.
+  // Storing the preset name (instead of a frozen timestamp) keeps "last 24h"
+  // sliding forward across the 15s poll cycle.
+  const PRESET_SECONDS = { '24h': 86400, '7d': 7 * 86400, '30d': 30 * 86400 };
+
+  function resolveSince(spec, nowMs) {
+    if (spec == null || spec === '' || spec === 'all') return null;
+    const now = Math.floor((nowMs || Date.now()) / 1000);
+    if (Object.prototype.hasOwnProperty.call(PRESET_SECONDS, spec)) {
+      return now - PRESET_SECONDS[spec];
+    }
+    const t = Date.parse(spec);
+    if (isNaN(t)) return null;
+    return Math.floor(t / 1000);
+  }
+
+  function emptyTotals() {
+    return { entries: 0, exits: 0, wins: 0, losses: 0, stopExits: 0, pnl: 0, deployed: 0 };
+  }
+
+  function entryCost(r) {
+    return Number(
+      r.paperCost
+      ?? r.paperSize
+      ?? r.filledUsd
+      ?? (r.masterPrice != null && r.paperShares != null ? r.masterPrice * r.paperShares : 0)
+    ) || 0;
+  }
+
+  // Mirrors readers.readLedger's totals/cumulativePnl logic, but applies an
+  // optional `sinceTs` filter (unix seconds) and re-zeros running PnL at the
+  // window start. Pure: no DOM, no I/O.
+  function windowTotals(records, sinceTs) {
+    const totals = emptyTotals();
+    const cumulativePnl = [];
+    let running = 0;
+    for (const r of (records || [])) {
+      if (sinceTs != null && Number(r.ts || 0) < sinceTs) continue;
+      if (r.kind === 'entry' || r.kind === 'mirror' || r.kind === 'live') {
+        totals.entries++;
+        totals.deployed += entryCost(r);
+      } else if (r.kind === 'exit') {
+        totals.exits++;
+        if (r.won === true) totals.wins++;
+        else totals.losses++;
+        if (r.stoppedOut === true) totals.stopExits++;
+        const pnl = Number(r.pnl ?? 0);
+        totals.pnl += pnl;
+        running += pnl;
+        cumulativePnl.push([r.ts, Math.round(running * 100) / 100]);
+      }
+    }
+    totals.pnl = Math.round(totals.pnl * 100) / 100;
+    totals.deployed = Math.round(totals.deployed * 100) / 100;
+    return { totals, cumulativePnl };
+  }
+
+  function buildRangeLabel(sinceTs) {
+    if (sinceTs == null) return 'all-time';
+    const iso = new Date(sinceTs * 1000).toISOString();
+    return 'since ' + iso.slice(0, 16).replace('T', ' ') + 'Z';
+  }
+
+  function buildRangePicker(spec) {
+    const active = spec == null || spec === '' ? 'all' : spec;
+    const presets = [
+      ['all', 'All'],
+      ['24h', '24h'],
+      ['7d',  '7d'],
+      ['30d', '30d'],
+    ];
+    const isCustom = active !== 'all' && !Object.prototype.hasOwnProperty.call(PRESET_SECONDS, active);
+    const customVal = isCustom ? String(active).slice(0, 16) : '';
+    const buttons = presets.map(([k, lbl]) =>
+      `<button class="range-btn${active === k ? ' active' : ''}" data-since="${k}">${lbl}</button>`
+    ).join('');
+    return `<div class="toolbar range-picker" data-role="range">` +
+      `<span class="muted">PnL since:</span>` +
+      buttons +
+      `<input type="datetime-local" id="range-custom" value="${escapeHtml(customVal)}" step="60">` +
+      `<button class="range-btn${isCustom ? ' active' : ''}" id="range-apply">Apply</button>` +
+      `<span class="muted range-label">${escapeHtml(buildRangeLabel(resolveSince(active)))}</span>` +
+      `</div>`;
+  }
+
+  return {
+    parseHash, formatPnl, escapeHtml,
+    buildOverviewRow, buildVariantSpec, buildLedgerTable, buildPositionsTable, buildLogsList,
+    resolveSince, windowTotals, buildRangePicker, buildRangeLabel,
+  };
 }));

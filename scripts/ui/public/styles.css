@@ -44,9 +44,13 @@ th { color: var(--muted); font-weight: normal; font-size: 11px; text-transform: 
   font-size: 12px; line-height: 1.4; max-height: 70vh; }
 .logs .ts { color: var(--muted); }
 
-.toolbar { display: flex; gap: 8px; padding: 8px 0; align-items: center; }
-.toolbar select, .toolbar button { background: var(--panel); color: var(--fg); border: 1px solid var(--border);
+.toolbar { display: flex; gap: 8px; padding: 8px 0; align-items: center; flex-wrap: wrap; }
+.toolbar select, .toolbar button, .toolbar input { background: var(--panel); color: var(--fg); border: 1px solid var(--border);
   padding: 4px 8px; border-radius: 4px; font: inherit; }
+.range-picker .range-btn { cursor: pointer; }
+.range-picker .range-btn:hover { border-color: var(--accent); }
+.range-picker .range-btn.active { background: rgba(88,166,255,0.18); border-color: var(--accent); color: var(--fg); }
+.range-picker .range-label { margin-left: 8px; font-size: 12px; }
 
 .banner { background: var(--neg); color: white; padding: 6px 16px; text-align: center; font-weight: bold; }
 .empty { padding: 40px; text-align: center; color: var(--muted); }
