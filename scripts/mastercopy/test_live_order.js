@@ -10,7 +10,7 @@
 //
 // ⚠️ PLACES REAL ORDER WITH REAL MONEY. $1 max risk per invocation.
 
-const { ClobClient, OrderType, Side, Chain } = require('@polymarket/clob-client-v2');
+const { ClobClient, OrderType, Side, Chain, SignatureTypeV2, AssetType } = require('@polymarket/clob-client-v2');
 const { createWalletClient, http } = require('viem');
 const { privateKeyToAccount } = require('viem/accounts');
 const { polygon } = require('viem/chains');
@@ -52,27 +52,43 @@ async function nextBtcUpdownMarket() {
 
   // L1 auth: derive API keys for the funder context. This signs an EIP-712 challenge
   // with the EOA, and the server maps EOA → funder to issue HMAC creds.
-  console.log('  [1/4] L1: createOrDeriveApiKey (proves the EOA+funder pairing is valid)...');
+  // signatureType=POLY_1271 is required because Nikusky7 was created in the
+  // "deposit wallet" cohort (see docs.polymarket.com/trading/deposit-wallets) —
+  // the previous attempt with default POLY_PROXY was rejected with
+  // "maker address not allowed, please use the deposit wallet flow".
+  console.log('  [1/5] L1: createOrDeriveApiKey (POLY_1271 / deposit-wallet flow)...');
   const bootstrap = new ClobClient({
     host: HOST,
     chain: Chain.POLYGON,
     signer: walletClient,
     funderAddress: FUNDER,
+    signatureType: SignatureTypeV2.POLY_1271,
   });
   const creds = await bootstrap.createOrDeriveApiKey();
   console.log(`        ok — api_key starts with: ${creds.key.slice(0, 8)}...`);
 
-  console.log('  [2/4] L2: authenticated client with creds + funder override...');
+  console.log('  [2/5] L2: authenticated client (POLY_1271 + creds + funder)...');
   const client = new ClobClient({
     host: HOST,
     chain: Chain.POLYGON,
     signer: walletClient,
     funderAddress: FUNDER,
+    signatureType: SignatureTypeV2.POLY_1271,
     creds,
     throwOnError: true,
   });
 
-  console.log('  [3/4] resolve next btc-updown-15m market...');
+  // Sync the CLOB's view of our deposit wallet's collateral. Docs example calls this
+  // before placing orders to ensure allowances/balance are current.
+  console.log('  [2.5/5] updateBalanceAllowance(COLLATERAL) — sync deposit-wallet state...');
+  try {
+    await client.updateBalanceAllowance({ asset_type: AssetType.COLLATERAL });
+    console.log('          ok');
+  } catch (e) {
+    console.log(`          warn: ${e.message} (continuing — might already be in sync)`);
+  }
+
+  console.log('  [3/5] resolve next btc-updown-15m market...');
   const { slug, upTokenId } = await nextBtcUpdownMarket();
   console.log(`        market: ${slug}`);
   console.log(`        upTokenId: ${upTokenId.slice(0, 24)}...`);
@@ -85,7 +101,7 @@ async function nextBtcUpdownMarket() {
 
   // The size field is shares for limit orders, not USDC. At $0.55 limit, $1 = 1.82 shares.
   const sizeShares = Math.round((SIZE_USD / LIMIT_PRICE) * 100) / 100;
-  console.log(`  [4/4] placing FAK BUY @ $${LIMIT_PRICE} × ${sizeShares} shares (~$${SIZE_USD})...`);
+  console.log(`  [4/5] placing FAK BUY @ $${LIMIT_PRICE} × ${sizeShares} shares (~$${SIZE_USD})...`);
 
   try {
     const resp = await client.createAndPostOrder(
