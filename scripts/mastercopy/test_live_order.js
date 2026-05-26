@@ -99,13 +99,15 @@ async function nextBtcUpdownMarket() {
   const tickSize = await client.getTickSize(upTokenId);
   console.log(`        tickSize: ${tickSize}`);
 
-  // The size field is shares for limit orders, not USDC. At $0.55 limit, $1 = 1.82 shares.
-  const sizeShares = Math.round((SIZE_USD / LIMIT_PRICE) * 100) / 100;
-  console.log(`  [4/5] placing FAK BUY @ $${LIMIT_PRICE} × ${sizeShares} shares (~$${SIZE_USD})...`);
+  // Use createAndPostMarketOrder — amount is in USDC directly, SDK computes
+  // shares + maker/taker amounts so they fit the precision constraints
+  // (maker 2 decimals, taker 4 decimals). Avoids the
+  // "invalid amounts" rejection we got with manual price×size math.
+  console.log(`  [4/5] placing FAK MARKET BUY for $${SIZE_USD} USDC...`);
 
   try {
-    const resp = await client.createAndPostOrder(
-      { tokenID: upTokenId, price: LIMIT_PRICE, side: Side.BUY, size: sizeShares },
+    const resp = await client.createAndPostMarketOrder(
+      { tokenID: upTokenId, amount: SIZE_USD, side: Side.BUY, orderType: OrderType.FAK },
       { tickSize },
       OrderType.FAK,
     );
