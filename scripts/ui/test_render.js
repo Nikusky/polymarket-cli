@@ -48,5 +48,51 @@ test('returns a tr string with WR and PnL', () => {
   assert.ok(row.includes('+$16.56'));
 });
 
+console.log('\n== render.buildLedgerTable ==');
+test('mirror record renders side + price + shares, not reason=?', () => {
+  const records = [{
+    kind: 'mirror', ts: 1779757039, slug: 'btc-updown-15m-1779756300',
+    tradeSide: 'BUY', outcome: 'Up', masterPrice: 0.18, paperShares: 5.5555,
+    openTs: 1779756300, resolveTs: 1779757200,
+  }];
+  const html = render.buildLedgerTable(records, 'all');
+  assert.ok(html.includes('<td>mirror</td>'), 'kind cell missing');
+  assert.ok(html.includes('>Up<') || html.includes('>BUY<'), `side cell missing: ${html}`);
+  assert.ok(html.includes('@0.180'), `price not formatted: ${html}`);
+  assert.ok(html.includes('5.6sh'), `shares not formatted: ${html}`);
+  assert.ok(!html.includes('reason=?'), `should NOT fall through to reason=?: ${html}`);
+});
+test('skip record still shows reason', () => {
+  const records = [{ kind: 'skip', ts: 1779757039, slug: 'x', reason: 'below_threshold' }];
+  const html = render.buildLedgerTable(records, 'all');
+  assert.ok(html.includes('reason=below_threshold'), html);
+});
+test('filter=mirror keeps only mirror rows', () => {
+  const records = [
+    { kind: 'entry', ts: 1, slug: 'a', avgFillPrice: 0.5, paperShares: 1 },
+    { kind: 'mirror', ts: 2, slug: 'b', masterPrice: 0.3, paperShares: 2, tradeSide: 'BUY' },
+  ];
+  const html = render.buildLedgerTable(records, 'mirror');
+  assert.ok(html.includes('<td>mirror</td>'));
+  assert.ok(!html.includes('<td>entry</td>'));
+});
+
+console.log('\n== render.buildPositionsTable ==');
+test('empty positions returns empty string', () => {
+  assert.strictEqual(render.buildPositionsTable([]), '');
+  assert.strictEqual(render.buildPositionsTable(null), '');
+});
+test('positions render as table, not JSON pre', () => {
+  const positions = [{
+    slug: 'btc-updown-15m-1779756300', tradeSide: 'BUY', outcome: 'Up',
+    masterPrice: 0.18, paperShares: 5.5555, openTs: 1779756300, resolveTs: 1779757200,
+  }];
+  const html = render.buildPositionsTable(positions);
+  assert.ok(html.includes('Open positions (1)'), html);
+  assert.ok(html.includes('<table'), `should be a table: ${html}`);
+  assert.ok(!html.includes('<pre>'), `should NOT be a JSON pre: ${html}`);
+  assert.ok(html.includes('0.180'), `price col missing: ${html}`);
+});
+
 console.log(`\n${failed === 0 ? 'PASS' : 'FAIL'} - ${failed} failure(s)`);
 process.exit(failed === 0 ? 0 : 1);

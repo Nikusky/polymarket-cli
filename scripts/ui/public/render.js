@@ -69,13 +69,49 @@
       rows.map(r => {
         const ts = new Date((r.ts || 0) * 1000).toISOString().slice(5,16).replace('T',' ');
         const slug = (r.slug || '').slice(-12);
+        const side = r.betSide || r.tradeSide || r.outcome || '';
         let detail = '';
-        if (r.kind === 'entry') detail = `@${(r.avgFillPrice||0).toFixed(3)} x ${(r.paperShares||0).toFixed(1)}sh`;
-        else if (r.kind === 'exit') detail = `${r.won ? 'WIN' : 'LOSS'} ${formatPnl(r.pnl||0)}${r.stoppedOut ? ' STOP' : ''}`;
-        else detail = `reason=${escapeHtml(r.reason || '?')}`;
-        return `<tr><td>${ts}</td><td>${escapeHtml(r.kind)}</td><td class="muted">${escapeHtml(slug)}</td><td>${escapeHtml(r.betSide || '')}</td><td class="num">${detail}</td></tr>`;
+        if (r.kind === 'entry') {
+          detail = `@${Number(r.avgFillPrice||0).toFixed(3)} x ${Number(r.paperShares||0).toFixed(1)}sh`;
+        } else if (r.kind === 'mirror') {
+          const px = r.masterPrice != null ? Number(r.masterPrice) : Number(r.avgFillPrice||0);
+          detail = `@${px.toFixed(3)} x ${Number(r.paperShares||0).toFixed(1)}sh`;
+        } else if (r.kind === 'exit') {
+          detail = `${r.won ? 'WIN' : 'LOSS'} ${formatPnl(r.pnl||0)}${r.stoppedOut ? ' STOP' : ''}`;
+        } else {
+          detail = `reason=${escapeHtml(r.reason || '?')}`;
+        }
+        return `<tr><td>${ts}</td><td>${escapeHtml(r.kind)}</td><td class="muted">${escapeHtml(slug)}</td><td>${escapeHtml(side)}</td><td class="num">${detail}</td></tr>`;
       }).join('') +
       `</tbody></table>`;
+  }
+
+  function buildPositionsTable(positions) {
+    if (!positions || !positions.length) return '';
+    const rows = positions.map(p => {
+      const slug = (p.slug || '').slice(-16);
+      const side = p.betSide || p.tradeSide || p.outcome || '';
+      const px = p.avgFillPrice != null ? Number(p.avgFillPrice)
+               : p.masterPrice != null ? Number(p.masterPrice) : null;
+      const shares = Number(p.paperShares || 0);
+      const cost = Number(p.paperCost != null ? p.paperCost
+                       : px != null ? px * shares : 0);
+      const opened = p.openTs ? new Date(p.openTs * 1000).toISOString().slice(5,16).replace('T',' ') : '-';
+      const resolves = p.resolveTs ? new Date(p.resolveTs * 1000).toISOString().slice(5,16).replace('T',' ') : '-';
+      return `<tr>` +
+        `<td class="muted">${escapeHtml(slug)}</td>` +
+        `<td>${escapeHtml(side)}</td>` +
+        `<td class="num">${px != null ? px.toFixed(3) : '-'}</td>` +
+        `<td class="num">${shares.toFixed(2)}</td>` +
+        `<td class="num">$${cost.toFixed(2)}</td>` +
+        `<td class="muted">${opened}</td>` +
+        `<td class="muted">${resolves}</td>` +
+        `</tr>`;
+    }).join('');
+    return `<h3>Open positions (${positions.length})</h3>` +
+      `<table class="ledger"><thead><tr>` +
+      `<th>slug</th><th>side</th><th>price</th><th>shares</th><th>cost</th><th>opened</th><th>resolves</th>` +
+      `</tr></thead><tbody>${rows}</tbody></table>`;
   }
 
   function buildLogsList(lines) {
@@ -86,5 +122,5 @@
     }).join('\n') + `</pre>`;
   }
 
-  return { parseHash, formatPnl, escapeHtml, buildOverviewRow, buildVariantSpec, buildLedgerTable, buildLogsList };
+  return { parseHash, formatPnl, escapeHtml, buildOverviewRow, buildVariantSpec, buildLedgerTable, buildPositionsTable, buildLogsList };
 }));

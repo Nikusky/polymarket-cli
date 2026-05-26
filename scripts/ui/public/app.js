@@ -126,13 +126,13 @@
     const positions = payload.positions || [];
     document.getElementById('root').innerHTML =
       R.buildVariantSpec({ ...v, totals: payload.totals }) +
-      (positions.length ? `<h3>Open positions (${positions.length})</h3>` +
-        `<pre>${R.escapeHtml(JSON.stringify(positions, null, 2))}</pre>` : '') +
+      R.buildPositionsTable(positions) +
       `<div class="toolbar">` +
       `Filter: ` +
       `<select id="filter">` +
       `<option value="all">all</option>` +
       `<option value="entry">entry</option>` +
+      `<option value="mirror">mirror</option>` +
       `<option value="exit">exit</option>` +
       `<option value="skip">skip</option>` +
       `<option value="stops">stops only</option>` +
