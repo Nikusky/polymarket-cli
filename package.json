@@ -1,0 +1,17 @@
+{
+  "name": "polybot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "polyBOT — mastercopy + directional strategy daemons running against Polymarket CLOB v2. The Rust `polymarket` binary handles reads (orderbook, market data, balance); this Node package handles live order placement via @polymarket/clob-client-v2 since the upstream Rust SDK (polymarket-client-sdk 0.4.x) is incompatible with Polymarket's current CLOB v2 schema.",
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@polymarket/clob-client-v2": "^1.0.6",
+    "viem": "^2.0.0"
+  },
+  "scripts": {
+    "test:mastercopy": "node scripts/mastercopy/test_mastercopy.js && node scripts/mastercopy/test_live.js",
+    "test:live-order": "node scripts/mastercopy/test_live_order.js"
+  }
+}
