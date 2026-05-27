@@ -65,7 +65,10 @@ function classifyMode(parsed, serviceName) {
     const hit = parsed.execStart.find(arg => typeof arg === 'string' && /(^|[\/\\])live[A-Za-z0-9_-]*\.js$/.test(arg));
     if (hit) return 'live';
   }
-  if (typeof serviceName === 'string' && /-live(\.service)?$/.test(serviceName)) return 'live';
+  // `-live` is the legacy real-money mc executor; `-live-<variant>` is the new
+  // convention where the suffix names the paper-bot the live mirror tails
+  // (e.g. polybot-strategy-live-s mirrors variant S).
+  if (typeof serviceName === 'string' && /-live(-[a-z]+)?(\.service)?$/.test(serviceName)) return 'live';
   return 'paper';
 }
 
@@ -80,7 +83,9 @@ function listVariants(deployDir) {
     // Discovers polyBOT variant units. The legacy `polybot-strategy.service` (no
     // letter suffix) is intentionally excluded — it predates the A/B/C/.../K split
     // and is now dead config; will be removed in a future cleanup.
-    const m = name.match(/^polybot-(strategy-([a-z]+)|mastercopy(-sells|-live|-scaled)?)\.service$/);
+    // Strategy labels are lowercase letters with optional internal hyphens to
+    // support the live-mirror convention (`strategy-live-s` → label `live-s`).
+    const m = name.match(/^polybot-(strategy-([a-z][a-z-]*)|mastercopy(-sells|-live|-scaled)?)\.service$/);
     if (!m) continue;
 
     let label;
@@ -127,23 +132,41 @@ function readLedger(dataDir, _opts = {}) {
     catch { parseErrors++; }
   }
 
+  // Field priority — `real*` wins because live ledgers carry the on-chain
+  // truth; paper fields are the fallback for paper-twin ledgers and mc-mirror
+  // records. Without this, live-s totals stayed at $0 because the entry shape
+  // (`realCost` / `realizedPnl`) doesn't match the paper shape (`paperCost`
+  // / `pnl`) that the paper variants emit.
+  function entryCost(r) {
+    return Number(
+      r.realCost                                                 // live executor V1/V2
+      ?? r.paperCost                                             // paper variants
+      ?? r.paperSize                                             // legacy paper field
+      ?? r.filledUsd                                             // mc-live shape
+      ?? (r.masterPrice != null && r.paperShares != null ? r.masterPrice * r.paperShares : 0)
+    );
+  }
+  function exitPnl(r) {
+    return Number(r.realizedPnl ?? r.pnl ?? r.paperPnl ?? 0);
+  }
+
   const totals = emptyTotals();
+  const errorRecords = [];
   for (const r of records) {
     if (r.kind === 'entry' || r.kind === 'mirror' || r.kind === 'live') {
       totals.entries++;
-      const cost = Number(
-        r.paperCost
-        ?? r.paperSize
-        ?? r.filledUsd
-        ?? (r.masterPrice != null && r.paperShares != null ? r.masterPrice * r.paperShares : 0)
-      );
-      totals.deployed += cost;
+      totals.deployed += entryCost(r);
     } else if (r.kind === 'exit') {
       totals.exits++;
       if (r.won === true) totals.wins++;
       else totals.losses++;
       if (r.stoppedOut === true) totals.stopExits++;
-      totals.pnl += Number(r.pnl ?? 0);
+      totals.pnl += exitPnl(r);
+    } else if (r.kind === 'error') {
+      totals.errors++;
+      errorRecords.push(r);
+    } else if (r.kind === 'paper_skip') {
+      totals.paperSkips++;
     }
   }
 
@@ -151,18 +174,21 @@ function readLedger(dataDir, _opts = {}) {
   let running = 0;
   for (const r of records) {
     if (r.kind !== 'exit') continue;
-    running += Number(r.pnl ?? 0);
+    running += exitPnl(r);
     cumulativePnl.push([r.ts, Math.round(running * 100) / 100]);
   }
 
   // Round pnl to 2 decimals to absorb fp noise.
   totals.pnl = Math.round(totals.pnl * 100) / 100;
 
-  return { records, totals, cumulativePnl, parseErrors };
+  // Most recent first, capped so consumers don't have to slice/reverse.
+  const recentErrors = errorRecords.slice(-5).reverse();
+
+  return { records, totals, cumulativePnl, parseErrors, recentErrors };
 }
 
 function emptyTotals() {
-  return { entries: 0, exits: 0, wins: 0, losses: 0, stopExits: 0, pnl: 0, deployed: 0 };
+  return { entries: 0, exits: 0, wins: 0, losses: 0, stopExits: 0, pnl: 0, deployed: 0, errors: 0, paperSkips: 0 };
 }
 
 function readState(dataDir) {
@@ -213,4 +239,23 @@ async function readJournal(unitName, opts = {}) {
   }
 }
 
-module.exports = { parseServiceFile, listVariants, classifyMode, readLedger, readState, readJournal, parseJournalOutput };
+const _serviceActiveCache = new Map(); // unitName -> { value, ts }
+const SERVICE_ACTIVE_TTL_MS = 5000;
+
+async function getServiceActive(unitName) {
+  if (!unitName) return null;
+  const now = Date.now();
+  const cached = _serviceActiveCache.get(unitName);
+  if (cached && (now - cached.ts) < SERVICE_ACTIVE_TTL_MS) return cached.value;
+  let value;
+  try {
+    const { stdout } = await execFileP('systemctl', ['is-active', unitName], { timeout: 1500 });
+    value = stdout.trim();
+  } catch (e) {
+    value = e && e.stdout ? String(e.stdout).trim() : 'unknown';
+  }
+  _serviceActiveCache.set(unitName, { value, ts: now });
+  return value;
+}
+
+module.exports = { parseServiceFile, listVariants, classifyMode, readLedger, readState, readJournal, parseJournalOutput, getServiceActive };

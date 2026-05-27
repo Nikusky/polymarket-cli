@@ -199,6 +199,51 @@ await test('parseErrors counts malformed JSON lines without throwing', () => {
   assert.strictEqual(r.parseErrors, 1, `expected 1 parseError, got ${r.parseErrors}`);
 });
 
+await test('live ledger: entry.realCost feeds deployed total', () => {
+  // Live executor V2 entry shape has realCost / realShares / realFillPrice
+  // (no paperCost). Before the fix, deployed stayed at $0 because the
+  // ?? chain bottomed out. realCost must take priority over paper fields.
+  const tmp = path.join(require('os').tmpdir(), `polybot-ui-test-${Date.now()}-live`);
+  require('fs').mkdirSync(tmp, { recursive: true });
+  require('fs').writeFileSync(path.join(tmp, 'strategy-ledger.jsonl'),
+    '{"kind":"entry","ts":1,"realCost":70.84,"realShares":144.9,"realFillPrice":0.489,"paperFillPrice":0.47}\n'
+  );
+  const r = readLedger(tmp);
+  assert.strictEqual(r.totals.entries, 1);
+  assert.ok(Math.abs(r.totals.deployed - 70.84) < 0.01, `deployed was ${r.totals.deployed}`);
+});
+
+await test('live ledger: exit.realizedPnl feeds PnL total + cumulativePnl', () => {
+  // V2 stop-loss exit shape uses realizedPnl (not pnl). Cumulative chart
+  // also reads exitPnl helper now — both must agree.
+  const tmp = path.join(require('os').tmpdir(), `polybot-ui-test-${Date.now()}-exit`);
+  require('fs').mkdirSync(tmp, { recursive: true });
+  require('fs').writeFileSync(path.join(tmp, 'strategy-ledger.jsonl'),
+    '{"kind":"entry","ts":1,"realCost":70.84}\n' +
+    '{"kind":"exit","ts":2,"won":false,"stoppedOut":true,"realizedPnl":-70.84,"paperPnl":-15}\n'
+  );
+  const r = readLedger(tmp);
+  assert.strictEqual(r.totals.exits, 1);
+  assert.strictEqual(r.totals.losses, 1);
+  assert.strictEqual(r.totals.stopExits, 1);
+  assert.ok(Math.abs(r.totals.pnl - (-70.84)) < 0.01, `pnl was ${r.totals.pnl}`);
+  assert.strictEqual(r.cumulativePnl.length, 1);
+  assert.ok(Math.abs(r.cumulativePnl[0][1] - (-70.84)) < 0.01, `cumPnl was ${r.cumulativePnl[0][1]}`);
+});
+
+await test('paper-only exit still sums pnl correctly (no regression)', () => {
+  // Paper variants emit { won, pnl } — must keep working when realizedPnl absent.
+  const tmp = path.join(require('os').tmpdir(), `polybot-ui-test-${Date.now()}-paper`);
+  require('fs').mkdirSync(tmp, { recursive: true });
+  require('fs').writeFileSync(path.join(tmp, 'strategy-ledger.jsonl'),
+    '{"kind":"exit","ts":1,"won":true,"pnl":12.34}\n' +
+    '{"kind":"exit","ts":2,"won":false,"pnl":-5}\n'
+  );
+  const r = readLedger(tmp);
+  assert.strictEqual(r.totals.exits, 2);
+  assert.ok(Math.abs(r.totals.pnl - 7.34) < 0.01, `pnl was ${r.totals.pnl}`);
+});
+
 console.log('\n== readState ==');
 
 await test('filters to open positions only', () => {
