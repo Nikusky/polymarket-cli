@@ -112,7 +112,10 @@
     const sameRoute = lastRoute
       && lastRoute.view === route.view
       && lastRoute.label === route.label;
-    const scrollY = sameRoute ? window.scrollY : 0;
+    // The scrollable element is #root (styles.css: overflow:auto), not window.
+    // html/body have height:100%, so window.scrollY is always 0.
+    const rootEl = document.getElementById('root');
+    const scrollY = sameRoute && rootEl ? rootEl.scrollTop : 0;
     try {
       if (route.view === 'overview') {
         const r = await fetch('/api/state');
@@ -149,17 +152,19 @@
       lastRoute = route;
       if (sameRoute && scrollY > 0) {
         // Re-apply across a few frames: Chart.js sizes its canvas via
-        // ResizeObserver/rAF so the document height isn't final right after
-        // innerHTML replacement. A naive scrollTo gets clamped to the
-        // shorter "no-chart-yet" height. Three passes covers sync layout,
-        // first rAF (Chart.js init), and post-animation settle.
-        const restore = () => window.scrollTo(0, scrollY);
-        restore();
-        requestAnimationFrame(() => {
+        // ResizeObserver/rAF so #root's scrollHeight isn't final right after
+        // innerHTML replacement. Three passes cover sync layout, the first
+        // rAF (Chart.js init), and the post-animation settle.
+        const el = document.getElementById('root');
+        if (el) {
+          const restore = () => { el.scrollTop = scrollY; };
           restore();
-          requestAnimationFrame(restore);
-        });
-        setTimeout(restore, 120);
+          requestAnimationFrame(() => {
+            restore();
+            requestAnimationFrame(restore);
+          });
+          setTimeout(restore, 120);
+        }
       }
     } catch (e) {
       setStatus(`stale | ${e.message}`, 'stale');
