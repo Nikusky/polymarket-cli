@@ -147,7 +147,20 @@
       }
       setStatus(`* 15s | ${new Date().toLocaleTimeString()}`, 'fresh');
       lastRoute = route;
-      if (sameRoute && scrollY > 0) window.scrollTo(0, scrollY);
+      if (sameRoute && scrollY > 0) {
+        // Re-apply across a few frames: Chart.js sizes its canvas via
+        // ResizeObserver/rAF so the document height isn't final right after
+        // innerHTML replacement. A naive scrollTo gets clamped to the
+        // shorter "no-chart-yet" height. Three passes covers sync layout,
+        // first rAF (Chart.js init), and post-animation settle.
+        const restore = () => window.scrollTo(0, scrollY);
+        restore();
+        requestAnimationFrame(() => {
+          restore();
+          requestAnimationFrame(restore);
+        });
+        setTimeout(restore, 120);
+      }
     } catch (e) {
       setStatus(`stale | ${e.message}`, 'stale');
     }
