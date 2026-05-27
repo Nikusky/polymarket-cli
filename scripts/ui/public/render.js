@@ -10,6 +10,7 @@
 
   function parseHash(hash) {
     if (!hash || hash === '#/' || hash === '#') return { view: 'overview' };
+    if (hash === '#/compare' || hash === '#/compare/') return { view: 'compare' };
     const m = hash.match(/^#\/(variant|logs)\/([a-z]{1,12}(?:-[a-z]+)?)$/);
     if (!m) return { view: 'overview' };
     return { view: m[1], label: m[2] };
@@ -232,9 +233,217 @@
       `</div>`;
   }
 
+  // ---- Comparison metrics (pure) ---------------------------------------------
+
+  // Max peak-to-trough decline on a cumulativePnl series [[ts_sec, runningPnl], ...].
+  // Returns a non-negative number in $ (0 when there is one or fewer points,
+  // or the series only goes up).
+  function maxDrawdown(cumulativePnl) {
+    if (!cumulativePnl || cumulativePnl.length < 2) return 0;
+    let peak = -Infinity;
+    let worst = 0;
+    for (const point of cumulativePnl) {
+      const v = Number(point[1] ?? 0);
+      if (v > peak) peak = v;
+      const dd = peak - v;
+      if (dd > worst) worst = dd;
+    }
+    return Math.round(worst * 100) / 100;
+  }
+
+  // Bucket exit PnLs by UTC day → daily $ series, then return summary stats.
+  // Days with no exits are skipped (so a 2-week 3-trade variant returns the
+  // 3 trade-days, not 14 zeros — this keeps Sharpe meaningful on sparse data).
+  function dailyPnlStats(records) {
+    const byDay = new Map();
+    for (const r of (records || [])) {
+      if (r.kind !== 'exit') continue;
+      const ts = Number(r.ts || 0);
+      if (!ts) continue;
+      const day = new Date(ts * 1000).toISOString().slice(0, 10);
+      const pnl = Number(r.pnl || 0);
+      byDay.set(day, (byDay.get(day) || 0) + pnl);
+    }
+    if (byDay.size === 0) {
+      return { days: 0, bestDay: 0, worstDay: 0, sharpe: null };
+    }
+    const values = [...byDay.values()];
+    const best = Math.max(...values);
+    const worst = Math.min(...values);
+    const mean = values.reduce((a, b) => a + b, 0) / values.length;
+    let sharpe = null;
+    if (values.length >= 2) {
+      const variance = values.reduce((a, b) => a + (b - mean) * (b - mean), 0) / (values.length - 1);
+      const sd = Math.sqrt(variance);
+      sharpe = sd > 0 ? mean / sd : null;
+    }
+    return {
+      days: byDay.size,
+      bestDay: Math.round(best * 100) / 100,
+      worstDay: Math.round(worst * 100) / 100,
+      sharpe,
+    };
+  }
+
+  // Risk panel data for one variant.
+  function computeRiskMetrics(cumulativePnl, records) {
+    return {
+      maxDrawdown: maxDrawdown(cumulativePnl),
+      ...dailyPnlStats(records),
+    };
+  }
+
+  // Per-trade panel data for one variant. Walks exits to compute avg win, avg
+  // loss, payoff ratio, and the current consecutive W/L streak (e.g. "5W").
+  function computePerTradeMetrics(totals, records) {
+    const t = totals || {};
+    const exits = (records || []).filter(r => r.kind === 'exit');
+    let winSum = 0, winN = 0, lossSum = 0, lossN = 0;
+    for (const r of exits) {
+      const pnl = Number(r.pnl || 0);
+      if (r.won === true) { winSum += pnl; winN++; }
+      else { lossSum += pnl; lossN++; }
+    }
+    const avgWin = winN > 0 ? winSum / winN : 0;
+    const avgLoss = lossN > 0 ? lossSum / lossN : 0;
+    const payoffRatio = avgLoss < 0 && winN > 0 ? Math.abs(avgWin / avgLoss) : null;
+    const avgPnlPerExit = (t.exits || 0) > 0 ? (t.pnl || 0) / t.exits : 0;
+    const avgCostPerEntry = (t.entries || 0) > 0 ? (t.deployed || 0) / t.entries : 0;
+    let streak = '-';
+    if (exits.length) {
+      const lastWon = exits[exits.length - 1].won === true;
+      let n = 0;
+      for (let i = exits.length - 1; i >= 0; i--) {
+        if ((exits[i].won === true) !== lastWon) break;
+        n++;
+      }
+      streak = `${n}${lastWon ? 'W' : 'L'}`;
+    }
+    return {
+      avgPnlPerExit: Math.round(avgPnlPerExit * 100) / 100,
+      avgCostPerEntry: Math.round(avgCostPerEntry * 100) / 100,
+      avgWin: Math.round(avgWin * 100) / 100,
+      avgLoss: Math.round(avgLoss * 100) / 100,
+      payoffRatio: payoffRatio == null ? null : Math.round(payoffRatio * 100) / 100,
+      streak,
+    };
+  }
+
+  function fmtNum(n, digits) {
+    if (n == null || !isFinite(n)) return '-';
+    return Number(n).toFixed(digits == null ? 2 : digits);
+  }
+
+  // ---- Compare view ----------------------------------------------------------
+
+  // Renders the full Compare page HTML. Caller is responsible for binding
+  // checkbox change events and the range picker via app.js. `selected` is a
+  // Set of variant labels.
+  function buildCompareView(state, selected, sinceSpec) {
+    const variants = (state && state.variants) || [];
+    const sel = selected instanceof Set ? selected : new Set(selected || []);
+    return `<h2>Compare</h2>` +
+      `<p class="muted">Side-by-side performance for any combination of variants. ` +
+      `Metrics respect the date range below.</p>` +
+      buildRangePicker(sinceSpec) +
+      buildCompareSelector(variants, sel) +
+      buildCompareTable(variants, sel) +
+      `<h3 style="margin-top:24px">Cumulative PnL</h3>` +
+      `<canvas id="chart" height="140"></canvas>`;
+  }
+
+  function buildCompareSelector(variants, selected) {
+    const live = variants.filter(v => v.mode === 'live');
+    const paper = variants.filter(v => v.mode !== 'live');
+    const cb = (v) => {
+      const checked = selected.has(v.label) ? ' checked' : '';
+      return `<label class="compare-pick">` +
+        `<input type="checkbox" class="compare-cb" data-label="${escapeHtml(v.label)}"${checked}>` +
+        `${escapeHtml(v.label.toUpperCase())}</label>`;
+    };
+    const groupHtml = (title, list) => list.length
+      ? `<div class="compare-group"><span class="muted">${escapeHtml(title)}:</span> ${list.map(cb).join('')}</div>`
+      : '';
+    return `<section class="compare-controls" data-role="compare-controls">` +
+      `<div class="toolbar">` +
+        `<span class="muted">Selected:</span> <span id="compare-count">${selected.size}</span>` +
+        `<button class="range-btn" data-compare-action="all">Select all</button>` +
+        `<button class="range-btn" data-compare-action="none">Clear</button>` +
+        `<button class="range-btn" data-compare-action="paper">Paper only</button>` +
+        `<button class="range-btn" data-compare-action="live">Live only</button>` +
+      `</div>` +
+      groupHtml('Live', live) +
+      groupHtml('Paper', paper) +
+      `</section>`;
+  }
+
+  function buildCompareTable(variants, selected) {
+    const chosen = variants.filter(v => selected.has(v.label));
+    if (chosen.length === 0) {
+      return `<p class="muted">Select at least one variant above to compare.</p>`;
+    }
+    const rows = chosen.map(v => {
+      const t = v.totals || {};
+      const records = v.rangeRecords || [];
+      const risk = computeRiskMetrics(v.cumulativePnl || [], records);
+      const per  = computePerTradeMetrics(t, records);
+      const wr = (t.exits || 0) > 0 ? ((t.wins || 0) / t.exits * 100) : null;
+      const roi = (t.deployed || 0) > 0 ? ((t.pnl || 0) / t.deployed * 100) : null;
+      const stopRate = (t.exits || 0) > 0 ? ((t.stopExits || 0) / t.exits * 100) : null;
+      const pnlClass = (t.pnl || 0) >= 0 ? 'pos' : 'neg';
+      const modeBadge = v.mode === 'live'
+        ? `<span class="badge mode-live">L</span>`
+        : `<span class="badge mode-paper">P</span>`;
+      return `<tr>` +
+        `<td class="label-cell">${escapeHtml(v.label.toUpperCase())} ${modeBadge}</td>` +
+        `<td class="num ${pnlClass}">${formatPnl(t.pnl || 0)}</td>` +
+        `<td class="num">${roi == null ? '-' : fmtNum(roi, 1) + '%'}</td>` +
+        `<td class="num">${t.entries || 0}</td>` +
+        `<td class="num">${t.exits || 0}</td>` +
+        `<td class="num">${v.openCount || 0}</td>` +
+        `<td class="num">${wr == null ? '-' : fmtNum(wr, 1) + '%'}</td>` +
+        `<td class="num">${stopRate == null ? '-' : fmtNum(stopRate, 1) + '%'}</td>` +
+        `<td class="num neg">-$${fmtNum(risk.maxDrawdown, 2)}</td>` +
+        `<td class="num pos">${formatPnl(risk.bestDay)}</td>` +
+        `<td class="num neg">${formatPnl(risk.worstDay)}</td>` +
+        `<td class="num">${risk.sharpe == null ? '-' : fmtNum(risk.sharpe, 2)}</td>` +
+        `<td class="num">${formatPnl(per.avgPnlPerExit)}</td>` +
+        `<td class="num">$${fmtNum(per.avgCostPerEntry, 2)}</td>` +
+        `<td class="num pos">${formatPnl(per.avgWin)}</td>` +
+        `<td class="num neg">${formatPnl(per.avgLoss)}</td>` +
+        `<td class="num">${per.payoffRatio == null ? '-' : fmtNum(per.payoffRatio, 2)}</td>` +
+        `<td>${escapeHtml(per.streak)}</td>` +
+        `</tr>`;
+    }).join('');
+    return `<div class="compare-table-wrap">` +
+      `<table class="compare-table"><thead><tr>` +
+        `<th>Variant</th>` +
+        `<th title="Total realized PnL in window">PnL</th>` +
+        `<th title="PnL / Deployed capital">ROI</th>` +
+        `<th>Entries</th>` +
+        `<th>Exits</th>` +
+        `<th>Open</th>` +
+        `<th title="Wins / Exits">WR</th>` +
+        `<th title="Stop-outs / Exits">Stops</th>` +
+        `<th title="Max peak-to-trough $ decline">MaxDD</th>` +
+        `<th title="Best UTC day in window">Best day</th>` +
+        `<th title="Worst UTC day in window">Worst day</th>` +
+        `<th title="Mean(daily PnL) / stddev(daily PnL)">Sharpe-ish</th>` +
+        `<th title="PnL / Exits">Avg PnL/exit</th>` +
+        `<th title="Deployed / Entries">Avg cost/entry</th>` +
+        `<th title="Mean win PnL">Avg win</th>` +
+        `<th title="Mean loss PnL (negative)">Avg loss</th>` +
+        `<th title="|Avg win / Avg loss|">Payoff</th>` +
+        `<th title="Current consecutive W/L streak">Streak</th>` +
+      `</tr></thead><tbody>${rows}</tbody></table>` +
+      `</div>`;
+  }
+
   return {
     parseHash, formatPnl, escapeHtml,
     buildOverviewRow, buildOverviewSection, buildVariantSpec, buildLedgerTable, buildPositionsTable, buildLogsList,
     resolveSince, windowTotals, buildRangePicker, buildRangeLabel,
+    computeRiskMetrics, computePerTradeMetrics,
+    buildCompareView, buildCompareSelector, buildCompareTable,
   };
 }));

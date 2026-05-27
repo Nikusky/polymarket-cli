@@ -23,6 +23,12 @@ test('"#/logs/k" parses', () => {
 test('invalid hash falls back to overview', () => {
   assert.deepStrictEqual(render.parseHash('#/garbage/path/here'), { view: 'overview' });
 });
+test('"#/compare" is the compare view', () => {
+  assert.deepStrictEqual(render.parseHash('#/compare'), { view: 'compare' });
+});
+test('"#/compare/" trailing slash also parses as compare', () => {
+  assert.deepStrictEqual(render.parseHash('#/compare/'), { view: 'compare' });
+});
 
 console.log('\n== render.formatPnl ==');
 test('positive pnl gets + prefix', () => {
@@ -262,6 +268,135 @@ test('paper variant gets a PAPER badge', () => {
 test('missing mode defaults to PAPER badge', () => {
   const html = render.buildVariantSpec({ label: 'd', service: 'polybot-strategy-d', env: {}, args: {} });
   assert.ok(html.includes('badge mode-paper'), html);
+});
+
+console.log('\n== render.computeRiskMetrics ==');
+test('empty inputs return zeroed metrics with null sharpe', () => {
+  const m = render.computeRiskMetrics([], []);
+  assert.strictEqual(m.maxDrawdown, 0);
+  assert.strictEqual(m.days, 0);
+  assert.strictEqual(m.bestDay, 0);
+  assert.strictEqual(m.worstDay, 0);
+  assert.strictEqual(m.sharpe, null);
+});
+test('maxDrawdown is peak-to-trough $ decline', () => {
+  // running pnl: 0 -> +5 -> +2 -> +8 -> +1. Peak=8, trough-after-peak=1, DD=7.
+  const cum = [[1, 5], [2, 2], [3, 8], [4, 1]];
+  const m = render.computeRiskMetrics(cum, []);
+  assert.strictEqual(m.maxDrawdown, 7);
+});
+test('monotonically rising series has zero drawdown', () => {
+  const cum = [[1, 1], [2, 2], [3, 3], [4, 4]];
+  const m = render.computeRiskMetrics(cum, []);
+  assert.strictEqual(m.maxDrawdown, 0);
+});
+test('dailyPnlStats buckets exits by UTC day', () => {
+  // Two exits on 2026-05-26 (+5 and -1), one on 2026-05-27 (+2). Best=4, worst=2.
+  const records = [
+    { kind: 'exit', ts: Math.floor(Date.parse('2026-05-26T01:00:00Z') / 1000), pnl: 5, won: true },
+    { kind: 'exit', ts: Math.floor(Date.parse('2026-05-26T23:00:00Z') / 1000), pnl: -1, won: false },
+    { kind: 'exit', ts: Math.floor(Date.parse('2026-05-27T05:00:00Z') / 1000), pnl: 2, won: true },
+  ];
+  const m = render.computeRiskMetrics([], records);
+  assert.strictEqual(m.days, 2);
+  assert.strictEqual(m.bestDay, 4);   // +5 + -1
+  assert.strictEqual(m.worstDay, 2);  // +2
+  assert.ok(m.sharpe != null);
+});
+
+console.log('\n== render.computePerTradeMetrics ==');
+test('avg PnL/exit and avg cost/entry from totals', () => {
+  const totals = { entries: 4, exits: 4, wins: 3, losses: 1, stopExits: 0, pnl: 12.0, deployed: 40.0 };
+  const records = [
+    { kind: 'exit', ts: 1, won: true,  pnl: 5 },
+    { kind: 'exit', ts: 2, won: true,  pnl: 4 },
+    { kind: 'exit', ts: 3, won: true,  pnl: 6 },
+    { kind: 'exit', ts: 4, won: false, pnl: -3 },
+  ];
+  const m = render.computePerTradeMetrics(totals, records);
+  assert.strictEqual(m.avgPnlPerExit, 3);     // 12/4
+  assert.strictEqual(m.avgCostPerEntry, 10);  // 40/4
+  assert.strictEqual(m.avgWin, 5);            // (5+4+6)/3
+  assert.strictEqual(m.avgLoss, -3);          // -3/1
+  assert.strictEqual(m.payoffRatio, 1.67);    // |5/-3|
+  assert.strictEqual(m.streak, '1L');
+});
+test('streak detects consecutive wins from the end', () => {
+  const records = [
+    { kind: 'exit', ts: 1, won: false, pnl: -1 },
+    { kind: 'exit', ts: 2, won: true,  pnl: 2 },
+    { kind: 'exit', ts: 3, won: true,  pnl: 3 },
+    { kind: 'exit', ts: 4, won: true,  pnl: 4 },
+  ];
+  const m = render.computePerTradeMetrics({ entries: 4, exits: 4, pnl: 8, deployed: 0 }, records);
+  assert.strictEqual(m.streak, '3W');
+});
+test('no exits yields safe zeros and "-" streak', () => {
+  const m = render.computePerTradeMetrics({ entries: 0, exits: 0, pnl: 0, deployed: 0 }, []);
+  assert.strictEqual(m.avgPnlPerExit, 0);
+  assert.strictEqual(m.avgWin, 0);
+  assert.strictEqual(m.avgLoss, 0);
+  assert.strictEqual(m.payoffRatio, null);
+  assert.strictEqual(m.streak, '-');
+});
+
+console.log('\n== render.buildCompareView ==');
+const compareVariants = [
+  { label: 'd', mode: 'paper', openCount: 0,
+    totals: { entries: 4, exits: 4, wins: 3, losses: 1, stopExits: 0, pnl: 12, deployed: 40 },
+    cumulativePnl: [[1, 5], [2, 8], [3, 12]],
+    rangeRecords: [
+      { kind: 'entry', ts: 1, paperCost: 10 },
+      { kind: 'exit', ts: 2, pnl: 5, won: true  },
+      { kind: 'exit', ts: 3, pnl: 4, won: true  },
+      { kind: 'exit', ts: 4, pnl: 6, won: true  },
+      { kind: 'exit', ts: 5, pnl: -3, won: false },
+    ] },
+  { label: 'j', mode: 'paper', openCount: 1,
+    totals: { entries: 2, exits: 2, wins: 0, losses: 2, stopExits: 1, pnl: -4, deployed: 20 },
+    cumulativePnl: [[1, -1], [2, -4]],
+    rangeRecords: [
+      { kind: 'exit', ts: 1, pnl: -1, won: false },
+      { kind: 'exit', ts: 2, pnl: -3, won: false, stoppedOut: true },
+    ] },
+];
+test('selector renders checked state for selected labels only', () => {
+  const html = render.buildCompareSelector(compareVariants, new Set(['d']));
+  assert.ok(/data-label="d"\s+checked/.test(html), html);
+  assert.ok(/data-label="j"(?!\s+checked)/.test(html), html);
+  assert.ok(html.includes('Select all'), html);
+  assert.ok(html.includes('Paper only'), html);
+});
+test('table shows a prompt when nothing is selected', () => {
+  const html = render.buildCompareTable(compareVariants, new Set());
+  assert.ok(html.includes('Select at least one variant'), html);
+});
+test('table renders one row per selected variant with core + risk + per-trade columns', () => {
+  const html = render.buildCompareTable(compareVariants, new Set(['d', 'j']));
+  assert.ok(html.includes('class="compare-table"'), html);
+  assert.ok(html.includes('>D '), html);
+  assert.ok(html.includes('>J '), html);
+  assert.ok(html.includes('+$12.00'), html);   // D PnL
+  assert.ok(html.includes('-$4.00'), html);    // J PnL
+  assert.ok(html.includes('30.0%'),  html);    // D ROI = 12/40 = 30%
+  assert.ok(html.includes('75.0%'),  html);    // D WR = 3/4
+  assert.ok(html.includes('50.0%'),  html);    // J stop-rate = 1/2
+  // Headers for all three metric groups.
+  assert.ok(html.includes('MaxDD'), html);
+  assert.ok(html.includes('Sharpe-ish'), html);
+  assert.ok(html.includes('Payoff'), html);
+  assert.ok(html.includes('Streak'), html);
+});
+test('full compare view includes range picker, controls, table, and chart canvas', () => {
+  const html = render.buildCompareView(
+    { variants: compareVariants },
+    new Set(['d']),
+    '7d'
+  );
+  assert.ok(html.includes('data-role="range"'), html);              // range picker present
+  assert.ok(html.includes('data-role="compare-controls"'), html);   // selector present
+  assert.ok(html.includes('class="compare-table"'), html);          // table present
+  assert.ok(html.includes('<canvas id="chart"'), html);             // chart canvas present
 });
 
 console.log(`\n${failed === 0 ? 'PASS' : 'FAIL'} - ${failed} failure(s)`);
