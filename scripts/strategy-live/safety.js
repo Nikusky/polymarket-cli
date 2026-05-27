@@ -3,7 +3,7 @@
 // relaxation in production.
 const RAILS = Object.freeze({
   PER_TRADE_USD: 100,
-  DAILY_LOSS_USD: -300, // inclusive at -300 exactly; kill at -300.01
+  DAILY_LOSS_USD: -150, // inclusive at -150 exactly; kill at -150.01
   MAX_CONCURRENT: 3,
 });
 

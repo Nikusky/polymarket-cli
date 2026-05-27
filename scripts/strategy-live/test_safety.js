@@ -9,7 +9,7 @@ function test(name, fn) {
 
 console.log('== RAILS constants ==');
 test('PER_TRADE_USD = 100', () => assert.strictEqual(RAILS.PER_TRADE_USD, 100));
-test('DAILY_LOSS_USD = -300', () => assert.strictEqual(RAILS.DAILY_LOSS_USD, -300));
+test('DAILY_LOSS_USD = -150', () => assert.strictEqual(RAILS.DAILY_LOSS_USD, -150));
 test('MAX_CONCURRENT = 3', () => assert.strictEqual(RAILS.MAX_CONCURRENT, 3));
 
 console.log('\n== checkPerTradeSize ==');
@@ -23,16 +23,16 @@ test('fails when > 100', () => {
 });
 
 console.log('\n== checkDailyLossKill ==');
-test('passes when daily PnL >= -300', () => {
-  assert.deepStrictEqual(checkDailyLossKill(-299.99), { ok: true });
+test('passes when daily PnL >= -150', () => {
+  assert.deepStrictEqual(checkDailyLossKill(-149.99), { ok: true });
 });
-test('fails when daily PnL < -300', () => {
-  const r = checkDailyLossKill(-300.01);
+test('fails when daily PnL < -150', () => {
+  const r = checkDailyLossKill(-150.01);
   assert.strictEqual(r.ok, false);
   assert.match(r.reason, /daily_loss_kill/);
 });
-test('passes at exactly -300 (inclusive boundary)', () => {
-  assert.deepStrictEqual(checkDailyLossKill(-300), { ok: true });
+test('passes at exactly -150 (inclusive boundary)', () => {
+  assert.deepStrictEqual(checkDailyLossKill(-150), { ok: true });
 });
 
 console.log('\n== checkConcurrentCap ==');
