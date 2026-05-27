@@ -1,0 +1,35 @@
+[Unit]
+Description=polyBOT strategy LIVE-S — places REAL CLOB orders mirroring variant S (K minus blackout: obs-11, thr-6, fill<=0.92, stop-loss-10, NO blackout, NO cap, $100/trade). Hardcoded safety: per-trade $100, daily -$300, concurrent <=3. Idempotent on paper-slug. Variant suffix in the name reflects which paper twin it mirrors — future LIVE-T (etc.) would point at a different paper bot.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=polybot
+Group=polybot
+WorkingDirectory=/opt/polybot/polymarket-cli
+EnvironmentFile=/etc/polybot/proxy-key.env
+Environment=STRATEGY_DATA_DIR=/opt/polybot/polymarket-cli/scripts/strategy-live/data-live-s
+Environment=LIVE_DATA_DIR=/opt/polybot/polymarket-cli/scripts/strategy-live/data-live-s
+Environment=PAPER_LEDGER_PATH=/opt/polybot/polymarket-cli/scripts/strategy/data-s/strategy-ledger.jsonl
+# V2 default: dry-run after redeploy until operator manually re-arms by
+# editing this line to `Environment=DRY_RUN=false` and running
+# `systemctl daemon-reload && systemctl restart polybot-strategy-live-s`.
+# This prevents an unattended restart from placing real orders with code that
+# hasn't been validated against live market state yet (V2 added placeMarketSell
+# + getOrder-based fill parsing).
+Environment=DRY_RUN=true
+ExecStart=/usr/bin/node /opt/polybot/polymarket-cli/scripts/strategy-live/main.js
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=polybot-strategy-live-s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/opt/polybot/polymarket-cli/scripts/strategy-live/data-live-s
+
+[Install]
+WantedBy=multi-user.target
