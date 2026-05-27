@@ -50,6 +50,22 @@
   }
   let compareSelected = loadCompareSelected();
 
+  // Persisted ledger-filter choice on the variant detail page. Survives the
+  // 15s polling rebuild AND full reloads.
+  const FILTER_KEY = 'polybot.ui.ledgerFilter';
+  function loadFilter() {
+    try { return localStorage.getItem(FILTER_KEY) || 'all'; }
+    catch { return 'all'; }
+  }
+  function saveFilter(s) {
+    try { localStorage.setItem(FILTER_KEY, s || 'all'); } catch {}
+  }
+  let filterSpec = loadFilter();
+
+  // Tracks the last route we rendered so the 15s poll can restore scroll
+  // position when sitting on the same page. Navigations start at the top.
+  let lastRoute = null;
+
   // Returns a shallow copy of `v` with totals/cumulativePnl recomputed over
   // [sinceTs, now]. When sinceTs is null, returns `v` unchanged.
   function applyRangeToVariant(v, sinceTs) {
@@ -93,6 +109,10 @@
 
   async function fetchAndRender() {
     const route = R.parseHash(window.location.hash);
+    const sameRoute = lastRoute
+      && lastRoute.view === route.view
+      && lastRoute.label === route.label;
+    const scrollY = sameRoute ? window.scrollY : 0;
     try {
       if (route.view === 'overview') {
         const r = await fetch('/api/state');
@@ -126,6 +146,8 @@
         renderCompare(applyRange(state));
       }
       setStatus(`* 15s | ${new Date().toLocaleTimeString()}`, 'fresh');
+      lastRoute = route;
+      if (sameRoute && scrollY > 0) window.scrollTo(0, scrollY);
     } catch (e) {
       setStatus(`stale | ${e.message}`, 'stale');
     }
@@ -269,19 +291,21 @@
       `<div class="toolbar">` +
       `Filter: ` +
       `<select id="filter">` +
-      `<option value="all">all</option>` +
-      `<option value="entry">entry</option>` +
-      `<option value="mirror">mirror</option>` +
-      `<option value="exit">exit</option>` +
-      `<option value="skip">skip</option>` +
-      `<option value="stops">stops only</option>` +
+      ['all', 'entry', 'mirror', 'exit', 'skip', 'stops']
+        .map(val => {
+          const label = val === 'stops' ? 'stops only' : val;
+          const sel = filterSpec === val ? ' selected' : '';
+          return `<option value="${val}"${sel}>${label}</option>`;
+        }).join('') +
       `</select>` +
       `<a href="#/logs/${v.label}">View logs -></a>` +
       `</div>` +
-      `<div id="ledger">${R.buildLedgerTable(ledger, 'all')}</div>`;
+      `<div id="ledger">${R.buildLedgerTable(ledger, filterSpec)}</div>`;
     bindRangePicker(document.querySelector('[data-role="range"]'));
     document.getElementById('filter').addEventListener('change', e => {
-      document.getElementById('ledger').innerHTML = R.buildLedgerTable(ledger, e.target.value);
+      filterSpec = e.target.value;
+      saveFilter(filterSpec);
+      document.getElementById('ledger').innerHTML = R.buildLedgerTable(ledger, filterSpec);
     });
     drawVariantChart(v.label, windowed.cumulativePnl);
   }
