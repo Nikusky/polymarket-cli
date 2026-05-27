@@ -26,6 +26,26 @@
     return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
   }
 
+  // Three operational states for a live executor (mode === 'live'):
+  //   'armed'    — service active, DRY_RUN!=true  → placing real orders
+  //   'dry_run'  — service active, DRY_RUN==true  → logs only, no real orders
+  //   'disarmed' — service inactive               → not running
+  // Returns null for non-live variants (use mode-off/mode-paper instead).
+  function liveArmState(v) {
+    if (!v || v.mode !== 'live') return null;
+    if (!v.serviceActive || v.serviceActive !== 'active') return 'disarmed';
+    const dryRun = String((v.env && v.env.DRY_RUN) || '').toLowerCase() === 'true';
+    return dryRun ? 'dry_run' : 'armed';
+  }
+
+  function liveArmBadge(v) {
+    const s = liveArmState(v);
+    if (s === 'armed')    return `<span class="badge mode-armed" title="placing real CLOB orders">ARMED</span>`;
+    if (s === 'dry_run')  return `<span class="badge mode-dry-run" title="DRY_RUN=true: logs WOULD-BUY/WOULD-SELL but does not trade">DRY RUN</span>`;
+    if (s === 'disarmed') return `<span class="badge mode-disarmed" title="systemctl is-active: ${escapeHtml(v.serviceActive || 'inactive')}">DISARMED</span>`;
+    return '';
+  }
+
   // Renders a labelled overview section (Live or Paper) wrapping the standard
   // overview table. Returns '' when `variants` is empty so the caller can
   // simply concat both sections without an empty-section check.
@@ -46,8 +66,22 @@
     const wr = t.exits > 0 ? `${(t.wins / t.exits * 100).toFixed(1)}%` : '-';
     const pnlClass = (t.pnl || 0) >= 0 ? 'pos' : 'neg';
     const errBadge = v.error ? `<span class="badge err" title="${escapeHtml(v.error)}">${escapeHtml(v.error.slice(0,8))}</span>` : '';
+    // Live executors get a three-state badge (ARMED / DRY RUN / DISARMED);
+    // paper variants get OFF only when their service is inactive.
+    const activeBadge = v.mode === 'live'
+      ? liveArmBadge(v)
+      : (v.serviceActive && v.serviceActive !== 'active'
+          ? `<span class="badge mode-off" title="systemctl is-active: ${escapeHtml(v.serviceActive)}">OFF</span>`
+          : '');
+    const lastErr = (v.recentErrors && v.recentErrors[0]) || null;
+    const errCountTip = lastErr
+      ? `${t.errors} ledger error${t.errors === 1 ? '' : 's'} — last: ${lastErr.failedCall || ''} ${lastErr.httpStatus ? 'http=' + lastErr.httpStatus + ' ' : ''}${lastErr.error || ''}`.trim()
+      : `${t.errors || 0} ledger errors`;
+    const errCountBadge = (t.errors || 0) > 0
+      ? `<span class="badge err" title="${escapeHtml(errCountTip)}">!${t.errors}</span>`
+      : '';
     return `<tr data-label="${escapeHtml(v.label)}">` +
-      `<td class="label-cell">${escapeHtml(v.label.toUpperCase())} ${errBadge}</td>` +
+      `<td class="label-cell">${escapeHtml(v.label.toUpperCase())} ${activeBadge}${errBadge}${errCountBadge}</td>` +
       `<td>${t.exits || 0} (${t.wins || 0}W/${t.losses || 0}L)</td>` +
       `<td>${wr}</td>` +
       `<td class="${pnlClass} num">${formatPnl(t.pnl || 0)}</td>` +
@@ -64,8 +98,15 @@
     const modeBadge = v.mode === 'live'
       ? `<span class="badge mode-live" title="real-money on-chain orders">LIVE</span>`
       : `<span class="badge mode-paper" title="simulated fills">PAPER</span>`;
+    // Live mode also gets an operational-state badge (ARMED / DRY RUN /
+    // DISARMED); paper mode only shows OFF when its service is inactive.
+    const activeBadge = v.mode === 'live'
+      ? liveArmBadge(v)
+      : (v.serviceActive && v.serviceActive !== 'active'
+          ? `<span class="badge mode-off" title="systemctl is-active: ${escapeHtml(v.serviceActive)}">OFF</span>`
+          : '');
     return `<section class="spec">` +
-      `<h3>${escapeHtml((v.label || '').toUpperCase())} ${modeBadge} - ${escapeHtml(v.service || '')}</h3>` +
+      `<h3>${escapeHtml((v.label || '').toUpperCase())} ${modeBadge}${activeBadge} - ${escapeHtml(v.service || '')}</h3>` +
       `<p class="muted">${escapeHtml(v.description || '')}</p>` +
       `<dl>` +
       `<dt>observeMin</dt><dd>${args.observeMin ?? '?'}</dd>` +
@@ -100,10 +141,21 @@
           detail = `@${Number(r.avgFillPrice||0).toFixed(3)} x ${Number(r.filledShares||0).toFixed(2)}sh`;
         } else if (r.kind === 'exit') {
           detail = `${r.won ? 'WIN' : 'LOSS'} ${formatPnl(r.pnl||0)}${r.stoppedOut ? ' STOP' : ''}`;
+        } else if (r.kind === 'error') {
+          const tag = r.failedCall ? `[${r.failedCall}${r.httpStatus ? ' http=' + r.httpStatus : ''}] ` : '';
+          const msg = String(r.error || '').slice(0, 80);
+          detail = escapeHtml(tag + msg);
+        } else if (r.kind === 'paper_skip') {
+          const bps = typeof r.retBps === 'number' ? ` ${r.retBps.toFixed(2)}bps` : '';
+          detail = `paper:${escapeHtml(r.reason || '?')}${bps}`;
         } else {
           detail = `reason=${escapeHtml(r.reason || '?')}`;
         }
-        return `<tr><td>${ts}</td><td>${escapeHtml(r.kind)}</td><td class="muted">${escapeHtml(slug)}</td><td>${escapeHtml(side)}</td><td class="num">${detail}</td></tr>`;
+        const rowClass = r.kind === 'error' ? ' class="ledger-error"' : '';
+        const rowTitle = r.kind === 'error' && r.responseBody
+          ? ` title="${escapeHtml(String(r.responseBody).slice(0, 400))}"`
+          : '';
+        return `<tr${rowClass}${rowTitle}><td>${ts}</td><td>${escapeHtml(r.kind)}</td><td class="muted">${escapeHtml(slug)}</td><td>${escapeHtml(side)}</td><td class="num">${detail}</td></tr>`;
       }).join('') +
       `</tbody></table>`;
   }
@@ -165,7 +217,7 @@
   }
 
   function emptyTotals() {
-    return { entries: 0, exits: 0, wins: 0, losses: 0, stopExits: 0, pnl: 0, deployed: 0 };
+    return { entries: 0, exits: 0, wins: 0, losses: 0, stopExits: 0, pnl: 0, deployed: 0, errors: 0, paperSkips: 0 };
   }
 
   function entryCost(r) {
@@ -198,6 +250,10 @@
         totals.pnl += pnl;
         running += pnl;
         cumulativePnl.push([r.ts, Math.round(running * 100) / 100]);
+      } else if (r.kind === 'error') {
+        totals.errors++;
+      } else if (r.kind === 'paper_skip') {
+        totals.paperSkips++;
       }
     }
     totals.pnl = Math.round(totals.pnl * 100) / 100;
@@ -347,9 +403,65 @@
       `Metrics respect the date range below.</p>` +
       buildRangePicker(sinceSpec) +
       buildCompareSelector(variants, sel) +
+      buildCompareSpecs(variants, sel) +
       buildCompareTable(variants, sel) +
       `<h3 style="margin-top:24px">Cumulative PnL</h3>` +
       `<canvas id="chart" height="140"></canvas>`;
+  }
+
+  // Spec block rendered above the stats table so A/B reads of params (cap,
+  // stop-loss, blackout, sizing) are glance-able. Pulls from readers.js's
+  // parsed `args` + `env`; falls back to '-' for missing fields.
+  function buildCompareSpecs(variants, selected) {
+    const chosen = variants.filter(v => selected.has(v.label));
+    if (chosen.length === 0) return '';
+    const fmt = (val, fallback = '-') =>
+      (val === undefined || val === null || val === '') ? fallback : String(val);
+    const capCell = (env) => {
+      const up = env.MAX_OBS_BPS_UP;
+      const dn = env.MAX_OBS_BPS_DOWN;
+      const sym = env.MAX_OBS_BPS;
+      if (up != null || dn != null) {
+        return `Up=${escapeHtml(fmt(up, sym || '∞'))} / Down=${escapeHtml(fmt(dn, sym || '∞'))}`;
+      }
+      return escapeHtml(fmt(sym, '∞'));
+    };
+    const sizeCell = (args, env) => {
+      if (env.SIZE_BUCKETS_USD) return `buckets[${escapeHtml(env.SIZE_BUCKETS_USD)}]`;
+      if ((env.CERTAINTY_SIZING || '').toLowerCase() === 'true') {
+        return `certainty $${escapeHtml(fmt(env.CERTAINTY_MIN_USD, '?'))}-$${escapeHtml(fmt(env.CERTAINTY_MAX_USD, '?'))}`;
+      }
+      return `$${escapeHtml(fmt(args && args.positionUsd, '?'))}`;
+    };
+    const rows = chosen.map(v => {
+      const a = v.args || {};
+      const e = v.env || {};
+      return `<tr>` +
+        `<th>${escapeHtml((v.label || '').toUpperCase())}</th>` +
+        `<td>${escapeHtml(fmt(a.observeMin))}</td>` +
+        `<td>${escapeHtml(fmt(a.threshBps))}</td>` +
+        `<td>${capCell(e)}</td>` +
+        `<td>${escapeHtml(fmt(e.MAX_FILL_PRICE))}</td>` +
+        `<td>${sizeCell(a, e)}</td>` +
+        `<td>${escapeHtml(fmt(e.STOP_LOSS_RETBPS_REVERSAL, 'off'))}</td>` +
+        `<td>${escapeHtml(fmt(e.STRATEGY_BLACKOUT_HOURS, 'none'))}</td>` +
+        `<td>${escapeHtml(fmt(e.STRATEGY_SIDES, 'both'))}</td>` +
+        `</tr>`;
+    }).join('');
+    return `<h3 style="margin-top:16px">Specs</h3>` +
+      `<div class="compare-table-wrap">` +
+      `<table class="compare-table compare-specs"><thead><tr>` +
+        `<th>Variant</th>` +
+        `<th title="OBSERVE_MIN — observation window in minutes">obs (m)</th>` +
+        `<th title="THRESH_BPS — minimum |retBps| to enter">thresh (bps)</th>` +
+        `<th title="MAX_OBS_BPS / per-side caps — skip beyond this">maxObs (bps)</th>` +
+        `<th title="MAX_FILL_PRICE — skip if avg fill exceeds">maxFill</th>` +
+        `<th title="Position sizing — fixed $, certainty, or step-buckets">size</th>` +
+        `<th title="STOP_LOSS_RETBPS_REVERSAL — exit if BTC reverses this much">stopLoss</th>` +
+        `<th title="STRATEGY_BLACKOUT_HOURS — UTC hours that skip entry">blackout</th>` +
+        `<th title="STRATEGY_SIDES — Up / Down / both">sides</th>` +
+      `</tr></thead><tbody>${rows}</tbody></table>` +
+      `</div>`;
   }
 
   function buildCompareSelector(variants, selected) {
@@ -441,9 +553,10 @@
 
   return {
     parseHash, formatPnl, escapeHtml,
+    liveArmState, liveArmBadge,
     buildOverviewRow, buildOverviewSection, buildVariantSpec, buildLedgerTable, buildPositionsTable, buildLogsList,
     resolveSince, windowTotals, buildRangePicker, buildRangeLabel,
     computeRiskMetrics, computePerTradeMetrics,
-    buildCompareView, buildCompareSelector, buildCompareTable,
+    buildCompareView, buildCompareSelector, buildCompareSpecs, buildCompareTable,
   };
 }));

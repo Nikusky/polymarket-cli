@@ -59,8 +59,12 @@ th { color: var(--muted); font-weight: normal; font-size: 11px; text-transform: 
 .overview-section.live .section-title { color: var(--accent); border-bottom-color: var(--accent); }
 .overview-section.paper .section-title { color: var(--muted); }
 
-.badge.mode-live  { background: rgba(248,81,73,0.15); color: var(--neg); font-weight: 600; }
-.badge.mode-paper { background: rgba(139,148,158,0.15); color: var(--muted); }
+.badge.mode-live    { background: rgba(248,81,73,0.15); color: var(--neg); font-weight: 600; }
+.badge.mode-paper   { background: rgba(139,148,158,0.15); color: var(--muted); }
+.badge.mode-armed   { background: rgba(63,185,80,0.18); color: var(--pos); font-weight: 700; }
+.badge.mode-dry-run { background: rgba(210,153,34,0.22); color: #d29922; font-weight: 700; }
+.badge.mode-disarmed { background: rgba(248,81,73,0.25); color: var(--neg); font-weight: 700; }
+.badge.mode-off      { background: rgba(139,148,158,0.25); color: var(--muted); font-weight: 600; }
 
 .banner { background: var(--neg); color: white; padding: 6px 16px; text-align: center; font-weight: bold; }
 .empty { padding: 40px; text-align: center; color: var(--muted); }

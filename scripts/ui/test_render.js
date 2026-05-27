@@ -41,6 +41,50 @@ test('zero pnl is $0.00', () => {
   assert.strictEqual(render.formatPnl(0), '$0.00');
 });
 
+console.log('\n== render.liveArmState ==');
+test('returns null for paper variants', () => {
+  assert.strictEqual(render.liveArmState({ mode: 'paper', serviceActive: 'active' }), null);
+});
+test('returns "armed" when live + active + DRY_RUN missing', () => {
+  assert.strictEqual(render.liveArmState({ mode: 'live', serviceActive: 'active', env: {} }), 'armed');
+});
+test('returns "armed" when DRY_RUN explicitly false', () => {
+  assert.strictEqual(render.liveArmState({ mode: 'live', serviceActive: 'active', env: { DRY_RUN: 'false' } }), 'armed');
+});
+test('returns "dry_run" when DRY_RUN=true (lowercase)', () => {
+  assert.strictEqual(render.liveArmState({ mode: 'live', serviceActive: 'active', env: { DRY_RUN: 'true' } }), 'dry_run');
+});
+test('returns "dry_run" when DRY_RUN=TRUE (uppercase tolerated)', () => {
+  assert.strictEqual(render.liveArmState({ mode: 'live', serviceActive: 'active', env: { DRY_RUN: 'TRUE' } }), 'dry_run');
+});
+test('returns "disarmed" when serviceActive=inactive regardless of DRY_RUN', () => {
+  assert.strictEqual(render.liveArmState({ mode: 'live', serviceActive: 'inactive', env: { DRY_RUN: 'true' } }), 'disarmed');
+  assert.strictEqual(render.liveArmState({ mode: 'live', serviceActive: 'failed',   env: { DRY_RUN: 'false' } }), 'disarmed');
+});
+test('returns "disarmed" when serviceActive is missing', () => {
+  assert.strictEqual(render.liveArmState({ mode: 'live', env: { DRY_RUN: 'false' } }), 'disarmed');
+});
+
+console.log('\n== render.liveArmBadge ==');
+test('renders green ARMED badge when armed', () => {
+  const html = render.liveArmBadge({ mode: 'live', serviceActive: 'active', env: { DRY_RUN: 'false' } });
+  assert.ok(html.includes('mode-armed'), html);
+  assert.ok(html.includes('>ARMED<'), html);
+});
+test('renders yellow DRY RUN badge when in dry-run', () => {
+  const html = render.liveArmBadge({ mode: 'live', serviceActive: 'active', env: { DRY_RUN: 'true' } });
+  assert.ok(html.includes('mode-dry-run'), html);
+  assert.ok(html.includes('>DRY RUN<'), html);
+});
+test('renders DISARMED badge when inactive', () => {
+  const html = render.liveArmBadge({ mode: 'live', serviceActive: 'inactive', env: { DRY_RUN: 'true' } });
+  assert.ok(html.includes('mode-disarmed'), html);
+  assert.ok(html.includes('>DISARMED<'), html);
+});
+test('returns empty string for paper variants', () => {
+  assert.strictEqual(render.liveArmBadge({ mode: 'paper', serviceActive: 'active' }), '');
+});
+
 console.log('\n== render.buildOverviewRow ==');
 test('returns a tr string with WR and PnL', () => {
   const v = {
@@ -397,6 +441,50 @@ test('full compare view includes range picker, controls, table, and chart canvas
   assert.ok(html.includes('data-role="compare-controls"'), html);   // selector present
   assert.ok(html.includes('class="compare-table"'), html);          // table present
   assert.ok(html.includes('<canvas id="chart"'), html);             // chart canvas present
+});
+
+console.log('\n== render.buildCompareSpecs ==');
+const specsVariants = [
+  { label: 'k', args: { observeMin: 11, threshBps: 6, positionUsd: 100 },
+    env: { MAX_FILL_PRICE: '0.92', STRATEGY_BLACKOUT_HOURS: '13,17,22', STOP_LOSS_RETBPS_REVERSAL: '10' } },
+  { label: 'p', args: { observeMin: 11, threshBps: 6, positionUsd: 100 },
+    env: { MAX_FILL_PRICE: '0.92', MAX_OBS_BPS: '12', STOP_LOSS_RETBPS_REVERSAL: '10' } },
+  { label: 'q', args: { observeMin: 11, threshBps: 6, positionUsd: 100 },
+    env: { MAX_FILL_PRICE: '0.92', MAX_OBS_BPS_UP: 'Infinity', MAX_OBS_BPS_DOWN: '10', STOP_LOSS_RETBPS_REVERSAL: '10' } },
+  { label: 'r', args: { observeMin: 11, threshBps: 6, positionUsd: 100 },
+    env: { MAX_FILL_PRICE: '0.92', SIZE_BUCKETS_USD: '6:150,7:100,10:50,12:0', STOP_LOSS_RETBPS_REVERSAL: '10' } },
+];
+test('empty selection returns empty string', () => {
+  assert.strictEqual(render.buildCompareSpecs(specsVariants, new Set()), '');
+});
+test('specs table renders one row per selected variant with spec columns', () => {
+  const html = render.buildCompareSpecs(specsVariants, new Set(['k', 'p', 'q', 'r']));
+  assert.ok(html.includes('class="compare-table compare-specs"'), html);
+  assert.ok(html.includes('<th>K</th>'), html);
+  assert.ok(html.includes('<th>P</th>'), html);
+  assert.ok(html.includes('<th>Q</th>'), html);
+  assert.ok(html.includes('<th>R</th>'), html);
+  assert.ok(html.includes('13,17,22'), html);
+  assert.ok(html.includes('Up=Infinity / Down=10'), html);
+  assert.ok(html.includes('buckets[6:150,7:100,10:50,12:0]'), html);
+  assert.ok(html.includes('>12<'), html);
+  assert.ok(/<td>none<\/td>/.test(html), html);
+  assert.ok(html.includes('thresh (bps)'), html);
+  assert.ok(html.includes('maxObs (bps)'), html);
+  assert.ok(html.includes('blackout'), html);
+});
+test('size cell falls back to fixed $positionUsd when no sizer env is set', () => {
+  const html = render.buildCompareSpecs(specsVariants, new Set(['k']));
+  assert.ok(html.includes('$100'), html);
+});
+test('full compare view now includes the specs table', () => {
+  const html = render.buildCompareView(
+    { variants: specsVariants },
+    new Set(['k', 'p']),
+    '7d'
+  );
+  assert.ok(html.includes('class="compare-table compare-specs"'), html);
+  assert.ok(html.includes('class="compare-table"'), html);
 });
 
 console.log(`\n${failed === 0 ? 'PASS' : 'FAIL'} - ${failed} failure(s)`);
