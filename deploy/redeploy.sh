@@ -52,6 +52,15 @@ if [[ $EUID -ne 0 ]]; then exec sudo bash "$0" "$@"; fi
 
 as_user() { sudo -u "$SERVICE_USER" -H bash -lc "$*"; }
 
+# True iff systemd knows about the unit on this host. A *.service file may
+# exist in deploy/ (and so be picked up by discover_services) without ever
+# having been copied to /etc/systemd/system + daemon-reloaded — e.g. brand
+# new variants the operator hasn't enabled yet. We must not let those
+# orphans take down the whole redeploy via `set -e`.
+is_installed() {
+    systemctl cat -- "$1.service" >/dev/null 2>&1
+}
+
 cd "$REPO_ROOT"
 
 # Auto-recovery for scp-residue: an untracked working-tree file that is
@@ -131,7 +140,13 @@ else
 fi
 
 log "Restarting services: ${SERVICES[*]}"
+SKIPPED=()
 for svc in "${SERVICES[@]}"; do
+    if ! is_installed "$svc"; then
+        warn "${svc} not installed on this host — skipping (unit file in repo, not loaded into systemd; run 'sudo cp deploy/${svc}.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now ${svc}' to install)"
+        SKIPPED+=("$svc")
+        continue
+    fi
     systemctl restart "$svc"
     ok "${svc} restarted"
 done
@@ -140,6 +155,10 @@ if [[ $NO_STATUS -eq 0 ]]; then
     sleep 2
     log "Service status"
     for svc in "${SERVICES[@]}"; do
+        if ! is_installed "$svc"; then
+            warn "${svc} (skipped — not installed)"
+            continue
+        fi
         if systemctl is-active --quiet "$svc"; then
             ok "${svc} is active"
         else
@@ -149,9 +168,14 @@ if [[ $NO_STATUS -eq 0 ]]; then
     done
     log "Recent log tail (last 10 lines per service)"
     for svc in "${SERVICES[@]}"; do
+        is_installed "$svc" || continue
         echo "--- ${svc} ---"
         journalctl -u "$svc" -n 10 --no-pager || true
     done
+fi
+
+if [[ ${#SKIPPED[@]} -gt 0 ]]; then
+    warn "Skipped (not installed on this host): ${SKIPPED[*]}"
 fi
 
 log "Redeploy complete."
