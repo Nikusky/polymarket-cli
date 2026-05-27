@@ -6,8 +6,13 @@
 
   let state = null;
   let pollTimer = null;
-  let chart = null;
+  let charts = [];
   let consecutiveFails = 0;
+
+  function destroyCharts() {
+    for (const c of charts) { try { c.destroy(); } catch {} }
+    charts = [];
+  }
 
   // Persisted set of legend labels the user has hidden on the overview chart.
   // Survives the 15s polling rebuild AND full page reloads.
@@ -32,6 +37,18 @@
     try { localStorage.setItem(SINCE_KEY, s || 'all'); } catch {}
   }
   let sinceSpec = loadSince();
+
+  // Persisted set of variant labels selected on the Compare page. Survives the
+  // 15s polling rebuild AND full reloads.
+  const COMPARE_KEY = 'polybot.ui.compareSelected';
+  function loadCompareSelected() {
+    try { return new Set(JSON.parse(localStorage.getItem(COMPARE_KEY) || '[]')); }
+    catch { return new Set(); }
+  }
+  function saveCompareSelected(set) {
+    try { localStorage.setItem(COMPARE_KEY, JSON.stringify([...set])); } catch {}
+  }
+  let compareSelected = loadCompareSelected();
 
   // Returns a shallow copy of `v` with totals/cumulativePnl recomputed over
   // [sinceTs, now]. When sinceTs is null, returns `v` unchanged.
@@ -101,6 +118,12 @@
         const logs = await lRes.json();
         renderSidebar(state, route);
         renderLogs(route.label, logs);
+      } else if (route.view === 'compare') {
+        const r = await fetch('/api/state');
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        state = await r.json();
+        renderSidebar(state, route);
+        renderCompare(applyRange(state));
       }
       setStatus(`* 15s | ${new Date().toLocaleTimeString()}`, 'fresh');
     } catch (e) {
@@ -141,6 +164,7 @@
     const firstLabel = (variants[0] && variants[0].label) || 'd';
     document.getElementById('sidebar').innerHTML =
       a('#/', 'Overview', route.view === 'overview') +
+      a('#/compare', 'Compare', route.view === 'compare') +
       group('Live', live) +
       group('Paper', paper) +
       `<div class="group">Other</div>` +
@@ -156,17 +180,22 @@
       `<p class="muted">Generated ${new Date(state.generatedAt * 1000).toISOString()} | ${variants.length} variants (${live.length} live, ${paper.length} paper)</p>` +
       R.buildRangePicker(sinceSpec) +
       R.buildOverviewSection('Live (real money)', live, { cls: 'live', note: 'on-chain CLOB orders' }) +
+      `<h3 style="margin-top:24px">Live Cumulative PnL</h3>` +
+      `<canvas id="chart-live" height="120"></canvas>` +
       R.buildOverviewSection('Paper', paper, { cls: 'paper', note: 'simulated fills' }) +
-      `<h3 style="margin-top:24px">Cumulative PnL</h3>` +
-      `<canvas id="chart" height="120"></canvas>`;
+      `<h3 style="margin-top:24px">Paper Cumulative PnL</h3>` +
+      `<canvas id="chart-paper" height="120"></canvas>`;
     bindRangePicker(document.querySelector('[data-role="range"]'));
-    drawChart(state);
+    destroyCharts();
+    drawChart(state, 'chart-live', v => v.mode === 'live');
+    drawChart(state, 'chart-paper', v => v.mode !== 'live');
   }
 
-  function drawChart(state) {
-    const ctx = document.getElementById('chart');
+  function drawChart(state, canvasId, modeFilter) {
+    const ctx = document.getElementById(canvasId);
     if (!ctx || !window.Chart) return;
     const datasets = state.variants
+      .filter(modeFilter)
       .filter(v => v.cumulativePnl && v.cumulativePnl.length)
       .map(v => ({
         label: v.label.toUpperCase(),
@@ -177,8 +206,7 @@
         // Pre-apply the user's persisted choice so the dataset starts hidden.
         hidden: hiddenLabels.has(v.label.toUpperCase()),
       }));
-    if (chart) chart.destroy();
-    chart = new window.Chart(ctx, {
+    charts.push(new window.Chart(ctx, {
       type: 'line',
       data: { datasets },
       options: {
@@ -214,7 +242,7 @@
           },
         },
       },
-    });
+    }));
   }
 
   function renderVariantDetail(payload) {
@@ -266,8 +294,8 @@
       ? windowedSeries
       : (v && v.cumulativePnl ? v.cumulativePnl : []);
     const data = series.map(([t, p]) => ({ x: t * 1000, y: p }));
-    if (chart) chart.destroy();
-    chart = new window.Chart(ctx, {
+    destroyCharts();
+    charts.push(new window.Chart(ctx, {
       type: 'line',
       data: {
         datasets: [{
@@ -290,7 +318,94 @@
         },
         plugins: { legend: { display: false } },
       },
+    }));
+  }
+
+  function renderCompare(state) {
+    const variants = state.variants || [];
+    // Drop stale labels from persisted selection (variant was removed since
+    // last visit) so the count and chart match the visible checkboxes.
+    const known = new Set(variants.map(v => v.label));
+    let changed = false;
+    for (const lbl of [...compareSelected]) {
+      if (!known.has(lbl)) { compareSelected.delete(lbl); changed = true; }
+    }
+    if (changed) saveCompareSelected(compareSelected);
+
+    document.getElementById('root').innerHTML =
+      R.buildCompareView(state, compareSelected, sinceSpec);
+
+    bindRangePicker(document.querySelector('[data-role="range"]'));
+    bindCompareControls(state);
+    drawCompareChart(state);
+  }
+
+  function bindCompareControls(state) {
+    const root = document.querySelector('[data-role="compare-controls"]');
+    if (!root) return;
+
+    root.querySelectorAll('input.compare-cb').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const label = cb.getAttribute('data-label');
+        if (cb.checked) compareSelected.add(label);
+        else compareSelected.delete(label);
+        saveCompareSelected(compareSelected);
+        // Re-render in place (cheap — no fetch) so the table + chart reflect
+        // the new selection immediately, without waiting for the 15s poll.
+        renderCompare(state);
+      });
     });
+
+    root.querySelectorAll('button[data-compare-action]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const action = btn.getAttribute('data-compare-action');
+        const variants = state.variants || [];
+        if (action === 'all') {
+          compareSelected = new Set(variants.map(v => v.label));
+        } else if (action === 'none') {
+          compareSelected = new Set();
+        } else if (action === 'paper') {
+          compareSelected = new Set(variants.filter(v => v.mode !== 'live').map(v => v.label));
+        } else if (action === 'live') {
+          compareSelected = new Set(variants.filter(v => v.mode === 'live').map(v => v.label));
+        }
+        saveCompareSelected(compareSelected);
+        renderCompare(state);
+      });
+    });
+  }
+
+  function drawCompareChart(state) {
+    const ctx = document.getElementById('chart');
+    if (!ctx || !window.Chart) return;
+    const datasets = (state.variants || [])
+      .filter(v => compareSelected.has(v.label) && v.cumulativePnl && v.cumulativePnl.length)
+      .map(v => ({
+        label: v.label.toUpperCase(),
+        data: v.cumulativePnl.map(([t, p]) => ({ x: t * 1000, y: p })),
+        borderWidth: 1.5,
+        fill: false,
+        tension: 0.1,
+      }));
+    destroyCharts();
+    charts.push(new window.Chart(ctx, {
+      type: 'line',
+      data: { datasets },
+      options: {
+        scales: {
+          x: { type: 'time', time: { unit: 'hour' } },
+          y: {
+            grid: {
+              color: (c) => c.tick.value === 0 ? '#e6edf3' : 'rgba(230,237,243,0.08)',
+              lineWidth: (c) => c.tick.value === 0 ? 2 : 1,
+            },
+          },
+        },
+        plugins: {
+          legend: { labels: { color: '#e6edf3' } },
+        },
+      },
+    }));
   }
 
   function renderLogs(label, logsPayload) {
