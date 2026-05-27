@@ -76,15 +76,35 @@ async function getJson(url) {
   return r.json();
 }
 
-async function fetchMasterTrades(addr, limit = 50) {
+// Paginate the master's trade feed back to `lastSeenTs` so a burst of fills
+// can't outrun a single poll. data-api silently ignores `before=`/`before_ts=`
+// and only honors `offset=`, so we paginate via offset until either:
+//   - the oldest trade in the page is older than lastSeenTs (gap covered),
+//   - the API returns fewer than `limit` rows (no more history), or
+//   - we hit `maxOffset` (Polymarket data-api returns 400 past 3500).
+// Returns trades newer than lastSeenTs (selectNewTrades dedupes downstream).
+async function fetchMasterTrades(addr, lastSeenTs = 0, opts = {}) {
+  const limit = opts.limit || 500;
+  const maxOffset = opts.maxOffset || 3500; // data-api hard cap
+  const out = [];
   try {
-    const url = `https://data-api.polymarket.com/trades?user=${addr}&limit=${limit}`;
-    const data = await getJson(url);
-    return Array.isArray(data) ? data : [];
+    for (let offset = 0; offset <= maxOffset; offset += limit) {
+      const url = `https://data-api.polymarket.com/trades?user=${addr}&limit=${limit}&offset=${offset}`;
+      const data = await getJson(url);
+      if (!Array.isArray(data) || data.length === 0) break;
+      let oldestInBatch = Infinity;
+      for (const t of data) {
+        if (typeof t.timestamp !== 'number') continue;
+        if (t.timestamp > lastSeenTs) out.push(t);
+        if (t.timestamp < oldestInBatch) oldestInBatch = t.timestamp;
+      }
+      if (oldestInBatch <= lastSeenTs) break;
+      if (data.length < limit) break;
+    }
   } catch (e) {
     log('warn', `fetch trades failed for ${addr.slice(0, 8)}: ${e.message}`);
-    return [];
   }
+  return out;
 }
 
 async function gammaWinner(slug) {
@@ -113,7 +133,8 @@ async function pollOnce(state, deps = {}) {
 
   const newMirrors = [];
   for (const addr of MASTERS) {
-    const trades = await fetchTrades(addr);
+    const lastSeen = state.lastSeenByMaster[addr] || 0;
+    const trades = await fetchTrades(addr, lastSeen);
     const candidates = selectNewTrades(trades, {
       slugPrefixes: SLUG_PREFIXES,
       lastSeenByMaster: state.lastSeenByMaster,

@@ -468,6 +468,56 @@ const main = require('./main');
     delete process.env.MIRROR_SIDES;
   });
 
+  await test('pollOnce passes lastSeenByMaster[addr] to fetchTrades for cursor pagination', async () => {
+    const tmpDirLS = fs.mkdtempSync(path.join(os.tmpdir(), 'mc-test-ls-'));
+    process.env.STRATEGY_DATA_DIR = tmpDirLS;
+    delete require.cache[require.resolve('./main')];
+    const mLS = require('./main');
+    const state = {
+      lastSeenByMaster: { '0xce25e214d5cfe4f459cf67f08df581885aae7fdc': 1779399900 },
+      positions: {},
+    };
+    let observedArgs = null;
+    await mLS.pollOnce(state, {
+      fetchTrades: async (addr, lastSeen) => {
+        observedArgs = { addr, lastSeen };
+        return [];
+      },
+      fetchWinner: async () => null,
+      now: () => 1779399965,
+    });
+    assert.strictEqual(observedArgs.addr, '0xce25e214d5cfe4f459cf67f08df581885aae7fdc');
+    assert.strictEqual(observedArgs.lastSeen, 1779399900,
+      'lastSeen must be passed so the fetcher can paginate back to the previous floor');
+  });
+
+  await test('pollOnce mirrors all trades returned by fetchTrades regardless of count (no implicit cap)', async () => {
+    const tmpDirBurst = fs.mkdtempSync(path.join(os.tmpdir(), 'mc-test-burst-'));
+    process.env.STRATEGY_DATA_DIR = tmpDirBurst;
+    delete require.cache[require.resolve('./main')];
+    const mBurst = require('./main');
+    const state = { lastSeenByMaster: {}, positions: {} };
+    // Simulate a burst: 120 trades returned in a single fetcher call (more than
+    // the pre-fix limit of 50). Distinct slugs and txHashes so dedup never fires.
+    const burst = [];
+    for (let i = 0; i < 120; i++) {
+      burst.push(mkTrade({
+        slug: `btc-updown-15m-${1779399900 + i * 900}`,
+        timestamp: 1779399960 + i,
+        transactionHash: `0xBURST${i}`,
+        price: 0.30 + (i % 5) * 0.05,
+      }));
+    }
+    const r = await mBurst.pollOnce(state, {
+      fetchTrades: async () => burst,
+      fetchWinner: async () => null,
+      now: () => 1779400060,
+    });
+    assert.strictEqual(r.newMirrors, 120,
+      `expected all 120 burst trades mirrored, got ${r.newMirrors}`);
+    assert.strictEqual(Object.keys(state.positions).length, 120);
+  });
+
   await test('pollOnce in MIRROR_MODE=SCALED uses master trade.size for paperShares', async () => {
     const tmpDirSc = fs.mkdtempSync(path.join(os.tmpdir(), 'mc-test-scaled-'));
     process.env.STRATEGY_DATA_DIR = tmpDirSc;
