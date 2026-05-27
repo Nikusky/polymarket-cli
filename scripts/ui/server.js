@@ -98,7 +98,14 @@ async function handle(req, res) {
                  name.endsWith('.js')  ? 'application/javascript' :
                  name.endsWith('.html') ? 'text/html; charset=utf-8' :
                  'application/octet-stream';
-      res.writeHead(200, { 'content-type': ct, 'content-length': buf.length });
+      // no-cache forces the browser to revalidate every reload so a half-deploy
+      // can't leave one of the SPA scripts on a stale cached version (which
+      // looked like "Compare link does nothing" during the 2026-05-27 ship).
+      res.writeHead(200, {
+        'content-type': ct,
+        'content-length': buf.length,
+        'cache-control': 'no-cache',
+      });
       return res.end(buf);
     }
     const logsMatch = p.match(/^\/api\/logs\/([^/]+)$/);
