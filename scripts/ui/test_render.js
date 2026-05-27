@@ -297,11 +297,22 @@ test('paper section does not include live variant', () => {
 });
 
 console.log('\n== render.buildVariantSpec mode badge ==');
-test('live variant gets a LIVE badge', () => {
+test('live variant gets operational badge, no redundant LIVE label', () => {
+  // Disarmed by default (no serviceActive) → DISARMED badge, no separate LIVE.
   const html = render.buildVariantSpec({ label: 'mc-live', mode: 'live', service: 'polybot-mastercopy-live', env: {}, args: {} });
-  assert.ok(html.includes('badge mode-live'), html);
-  assert.ok(html.includes('LIVE'), html);
+  assert.ok(html.includes('mode-disarmed'), html);
+  assert.ok(html.includes('DISARMED'), html);
+  assert.ok(!html.includes('mode-live'), `should not show redundant LIVE badge: ${html}`);
   assert.ok(!html.includes('mode-paper'), html);
+});
+test('live + active + DRY_RUN=true → only DRY RUN badge', () => {
+  const html = render.buildVariantSpec({
+    label: 'live-s', mode: 'live', service: 'polybot-strategy-live-s',
+    serviceActive: 'active', env: { DRY_RUN: 'true' }, args: {},
+  });
+  assert.ok(html.includes('mode-dry-run'), html);
+  assert.ok(html.includes('DRY RUN'), html);
+  assert.ok(!html.includes('mode-live'), `should not show redundant LIVE badge: ${html}`);
 });
 test('paper variant gets a PAPER badge', () => {
   const html = render.buildVariantSpec({ label: 'd', mode: 'paper', service: 'polybot-strategy-d', env: {}, args: {} });

@@ -95,11 +95,12 @@
     const envRows = Object.entries(v.env || {}).map(([k, val]) =>
       `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(val)}</dd>`).join('');
     const args = v.args || {};
+    // For live executors the operational-state badge (ARMED / DRY RUN /
+    // DISARMED) already implies live mode, so a separate LIVE label is
+    // redundant. Paper variants still get the explicit PAPER badge.
     const modeBadge = v.mode === 'live'
-      ? `<span class="badge mode-live" title="real-money on-chain orders">LIVE</span>`
+      ? ''
       : `<span class="badge mode-paper" title="simulated fills">PAPER</span>`;
-    // Live mode also gets an operational-state badge (ARMED / DRY RUN /
-    // DISARMED); paper mode only shows OFF when its service is inactive.
     const activeBadge = v.mode === 'live'
       ? liveArmBadge(v)
       : (v.serviceActive && v.serviceActive !== 'active'
